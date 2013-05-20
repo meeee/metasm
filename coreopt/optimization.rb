@@ -9,16 +9,23 @@
 
 class Flow
 
-  Ia32Reg = [
-    ['eax', 'ax', 'ah', 'al'],
-    ['ecx', 'cx', 'ch', 'cl'],
-    ['edx', 'dx', 'dh', 'dl'],
-    ['ebx', 'bx', 'bh', 'bl'],
-    ['esp', 'sp'],
-    ['ebp', 'bp'],
-    ['esi', 'si'],
-    ['edi', 'di'],
-  ]
+  # changed for x64
+  Ia32Reg = [["rax", "al", "ax", "eax", "al", "ah"],
+             ["rcx", "cl", "cx", "ecx", "cl", "ah"],
+             ["rdx", "dl", "dx", "edx", "dl", "dh"],
+             ["rbx", "bl", "bx", "ebx", "bl", "bh"],
+             ["rsp", "spl", "sp", "esp"],
+             ["rbp", "bpl", "bp", "ebp"],
+             ["rsi", "sil", "si", "esi"],
+             ["rdi", "dil", "di", "edi"],
+             ["r8", "r8b", "r8w", "r8d"],
+             ["r9", "r9b", "r9w", "r9d"],
+             ["r10", "r10b", "r10w", "r10d"],
+             ["r11", "r11b", "r11w", "r11d"],
+             ["r12", "r12b", "r12w", "r12d"],
+             ["r13", "r13b", "r13w", "r13d"],
+             ["r14", "r14b", "r14w", "r14d"],
+             ["r15", "r15b", "r15w", "r15d"]]
 
   # target specific implementation
   def peephole
