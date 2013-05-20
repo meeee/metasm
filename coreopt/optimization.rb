@@ -584,7 +584,9 @@ class Flow
   # mov, movzx, lea, pop, and lods instructions only are considered
   def is_decl(di)
     const = []
-    if (['mov', 'movzx', 'lodsb', 'lea', 'pop'] .include? di.instruction.opname)  and is_reg(di.instruction.args.first)
+    args = di.instruction.args
+    if ((['mov', 'movzx', 'lodsb', 'lea', 'pop'] .include? di.instruction.opname) and is_reg(args.first)) or
+        (di.instruction.opname == 'xor' and args.first == args.last)  # XORing a reg with itself always results in 0
 
       b = di.backtrace_binding ||= di.instruction.cpu.get_backtrace_binding(di)
       const = b.select{|e, val|	e and val and not e.to_s.match('eflag') }
