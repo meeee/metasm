@@ -629,7 +629,8 @@ class Flow
 
   # is_numeric : ensure that arg is a numeral
   def is_numeric(arg)
-    return (arg and arg.kind_of? Expression and arg.reduce_rec.kind_of? Integer)
+    return ((arg.kind_of? Integer) or
+            (arg.kind_of? Expression and arg.reduce_rec.kind_of? Integer))
   end
 
   # is_modrm : ensure that arg is a modrm : [esp+4], etc.
