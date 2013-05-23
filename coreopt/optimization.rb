@@ -124,7 +124,11 @@ class Flow
 
         tdi = di
         reg1 = di.instruction.args.first
-        exp1 = di.instruction.args.last
+        if di.instruction.opname == 'xor'  # only is_decl for xor x, x
+          exp1 = 0
+        else
+          exp1 = di.instruction.args.last
+        end
 
         while tdi = inext(tdi)
 
