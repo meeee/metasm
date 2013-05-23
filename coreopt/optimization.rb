@@ -131,10 +131,12 @@ class Flow
           next if tdi.instruction.opname == 'nop'
           next if tdi.instruction.opname == 'test' and not is_reg(exp1)
 
+          args2 = tdi.instruction.args
+
           # mov a, b      mov a, b
           # add c, a  =>  add c, b
-          if (tdi.instruction.args.length == 2 and is_reg(tdi.instruction.args.last) and
-          (tdi.instruction.args.last.to_s == reg1.to_s or reg_alias(reg1.to_s).include? tdi.instruction.args.last.to_s.to_sym)) and
+          if (args2.length == 2 and is_reg(args2.last) and
+          (args2.last.to_s == reg1.to_s or reg_alias(reg1.to_s).include? args2.last.to_s.to_sym)) and
           (not di.instruction.opname == 'lea') and (not tdi.instruction.opname == 'lea')
             # #and (tdi.instruction.args.last.sz == reg1.sz)
 
@@ -142,25 +144,26 @@ class Flow
             # xx dword ptr [...], a  => xx dword ptr [...], dword ptr [...] is
             # not supported
             # in IA32
-            break if is_modrm(exp1) and is_modrm(tdi.instruction.args.first)
+            break if is_modrm(exp1) and is_modrm(args2.first)
 
             # pop a
             # mov b, a => useless replacement
-            break if tdi.instruction.args.last.to_s == exp1.to_s
+            # FIXME check whether this matches valid replacements
+            break if args2.last.to_s == exp1.to_s
 
-            break if (not tdi.instruction.args.last.sz == reg1.sz) and not is_numeric(exp1)
+            break if (not args2.last.sz == reg1.sz) and not is_numeric(exp1)
             break if di.instruction.opname == 'movzx'
 
-            puts "    [-] Replace.1 #{Expression[tdi.instruction.args.last]} in #{tdi} by its definition #{Expression[exp1]} from #{di}" if $VERBOSE
+            puts "    [-] Replace.1 #{Expression[args2.last]} in #{tdi} by its definition #{Expression[exp1]} from #{di}" if $VERBOSE
 
-            tdi.instruction.args.pop
-            tdi.instruction.args.push exp1
+            args2.pop
+            args2.push exp1
             tdi.backtrace_binding = nil
 
             # mov a, b
             # mov b, a  => mov b, b is useless
-            if tdi.instruction.opname == 'mov' and is_reg(tdi.instruction.args.first) and
-            is_reg(tdi.instruction.args.last) and	(tdi.instruction.args.first.to_s == tdi.instruction.args.last.to_s)
+            if tdi.instruction.opname == 'mov' and is_reg(args2.first) and
+            is_reg(args2.last) and	(args2.first.to_s == args2.last.to_s)
 
               puts "    [-] NULL MOV in #{tdi}, instruction will burn in hell " if $VERBOSE
               burn_di(tdi)
@@ -169,6 +172,15 @@ class Flow
             work_in_progress = true
             break
 
+          # mov a, b
+          # imul c, a, imm => imul c, b, imm
+          elsif (tdi.instruction.opname == 'imul' and args2.length == 3 and is_reg(args2[1]) and reg1.to_s == args2[1].to_s)
+            puts "    [-] Replace.imul #{Expression[args2[1]]} in #{tdi} by its definition #{Expression[exp1]} from #{di}" if $VERBOSE
+            break if (not args2[1].sz == reg1.sz) and not is_numeric(exp1)
+            args2[1] = exp1
+            tdi.backtrace_binding = nil
+            work_in_progress = true
+            break
             # mov a, 0x1234
             # mov b, dword ptr [a]
           elsif di.instruction.opname == 'mov' and is_modrm(tdi.instruction.args.last) and not is_modrm(exp1) and
@@ -623,7 +635,8 @@ class Flow
 
   # is_reg : ensure that arg is a register
   def is_reg(arg)
-    return (arg and arg.kind_of? Ia32::Reg)
+    # FIXME implement RIP-relative addressing
+    return (arg and arg.kind_of? Ia32::Reg and arg.symbolic != :rip)
   end
 
   # is_stack_safe : ensure that instruction does not interact with the stack
