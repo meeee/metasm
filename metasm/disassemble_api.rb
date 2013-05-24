@@ -509,12 +509,21 @@ class Disassembler
 
 		# generate DecodedInstr from Instrs
 		# try to keep the bin_length of original block
-		wantlen = tdi.address + tdi.bin_length - fb.address
-		wantlen -= by.grep(DecodedInstruction).inject(0) { |len, di| len + di.bin_length }
-		ldi = by.last
-		ldi = DecodedInstruction.new(ldi) if ldi.kind_of? Instruction
-		nb_i = by.grep(Instruction).length
-		wantlen = nb_i if wantlen < 0 or (ldi and ldi.opcode.props[:setip])
+		if fb.address.kind_of? Expression or tdi.address.kind_of? Expression
+			nb_i = by.grep(Instruction).length
+			wantlen = nb_i
+		else
+			begin
+				wantlen = tdi.address + tdi.bin_length - fb.address
+			rescue => e
+				require 'pry'; binding.pry
+			end
+			wantlen -= by.grep(DecodedInstruction).inject(0) { |len, di| len + di.bin_length }
+			ldi = by.last
+			ldi = DecodedInstruction.new(ldi) if ldi.kind_of? Instruction
+			wantlen = nb_i if wantlen < 0 or (ldi and ldi.opcode.props[:setip])
+		end
+
 		if patch_by
 			by.map! { |di|
 				if di.kind_of? Instruction
@@ -598,11 +607,16 @@ class Disassembler
 			tolist = tb.to_subfuncret || tb.to_normal.to_a
 			if lfrom = get_label_at(fb.address) and tolist.length == 1
 				lto = auto_label_at(tolist.first)
-				each_xref(fb.address, :x) { |x|
-					next if not di = @decoded[x.origin]
-					@cpu.replace_instr_arg_immediate(di.instruction, lfrom, lto)
-					di.comment.to_a.each { |c| c.gsub!(lfrom, lto) }
-				}
+				unless lto.nil?  # skip addresses where auto_label_at fails
+					each_xref(fb.address, :x) { |x|
+						next if not di = @decoded[x.origin]
+						@cpu.replace_instr_arg_immediate(di.instruction, lfrom, lto)
+						di.comment.to_a.each { |c| c.gsub!(lfrom, lto) }
+					}
+				else
+					# require 'pry'; binding.pry
+
+				end
 			end
 			fb.from_normal.to_a.each { |newfrom|
 				if ndi = di_at(newfrom) and idx = ndi.block.to_normal.to_a.index(from)
