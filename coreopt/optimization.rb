@@ -96,12 +96,12 @@ class Flow
             tdi = di
 
           else
-            break if is_reg(argSrc) and write_access(tdi, argSrc.to_s)
-            break if is_modrm(argSrc) and argSrc.b and is_reg(argSrc.b) and write_access(tdi, argSrc.b.to_s)
-            break if is_modrm(argSrc) and argSrc.i and is_reg(argSrc.i) and write_access(tdi, argSrc.i.to_s)
+            break if is_reg(argSrc) and write_access(tdi, argSrc)
+            break if is_modrm(argSrc) and argSrc.b and is_reg(argSrc.b) and write_access(tdi, argSrc.b)
+            break if is_modrm(argSrc) and argSrc.i and is_reg(argSrc.i) and write_access(tdi, argSrc.i)
           end
 
-          overwritten = true if (is_reg(argSrc) and write_access(tdi, argSrc.to_s))
+          overwritten = true if (is_reg(argSrc) and write_access(tdi, argSrc))
         end
 
         break if (index != 0)
@@ -122,8 +122,11 @@ class Flow
       next if di.instruction.opname == 'nop'
       next if di.instruction.opname == 'lea'
 
-      if is_decl(di)
-
+      if is_decl_reg_or_stack_var(di)
+        puts "decl: #{di}"
+        if is_stack_var(di.instruction.args.first)
+          puts "      stack var"
+        end
         tdi = di
         reg1 = di.instruction.args.first
         if di.instruction.opname == 'xor'  # only is_decl for xor x, x
@@ -141,7 +144,7 @@ class Flow
 
           # mov a, b      mov a, b
           # add c, a  =>  add c, b
-          if (args2.length == 2 and is_reg(args2.last) and
+          if (is_reg(reg1) and args2.length == 2 and is_reg(args2.last) and
           (args2.last.to_s == reg1.to_s or reg_alias(reg1.to_s).include? args2.last.to_s.to_sym)) and
           (not di.instruction.opname == 'lea') and (not tdi.instruction.opname == 'lea')
             # #and (tdi.instruction.args.last.sz == reg1.sz)
@@ -179,6 +182,18 @@ class Flow
             work_in_progress = true
             break
 
+          # mov [rbp+a], b
+          # add c, [rbp+a] => add c, b
+          elsif (args2.length == 2 and stack_vars_equal(reg1, args2.last))
+            break if di.instruction.opname == 'movzx'
+            puts "    [-] Replace.1_stack #{Expression[args2.last]} in #{tdi} by its definition #{Expression[exp1]} from #{di}" if $VERBOSE
+            $coreopt_stats[:const_prop_1_stack_var] += 1
+            args2[1] = exp1
+            tdi.backtrace_binding = nil
+
+            work_in_progress = true
+            # require 'pry'; binding.pry
+            break
           # mov a, b
           # imul c, a, imm => imul c, b, imm
           elsif (tdi.instruction.opname == 'imul' and args2.length == 3 and is_reg(args2[1]) and reg1.to_s == args2[1].to_s)
@@ -260,10 +275,10 @@ class Flow
 
           end
 
-          break if write_access(tdi, reg1.to_s)
-          break if is_reg(exp1) and write_access(tdi, exp1.to_s)
-          break if is_modrm(exp1) and exp1.b and is_reg(exp1.b) and write_access(tdi, exp1.b.to_s)
-          break if is_modrm(exp1) and exp1.i and is_reg(exp1.i) and write_access(tdi, exp1.i.to_s)
+          break if write_access(tdi, reg1)
+          break if is_reg(exp1) and write_access(tdi, exp1)
+          break if is_modrm(exp1) and exp1.b and is_reg(exp1.b) and write_access(tdi, exp1.b)
+          break if is_modrm(exp1) and exp1.i and is_reg(exp1.i) and write_access(tdi, exp1.i)
         end
 
       end
@@ -335,10 +350,10 @@ class Flow
 
         end
 
-        break if write_access(tdi, reg1.to_s)
-        break if is_reg(exp1) and write_access(tdi, exp1.to_s)
-        break if is_modrm(exp1) and exp1.b and is_reg(exp1.b) and write_access(tdi, exp1.b.to_s)
-        break if is_modrm(exp1) and exp1.i and is_reg(exp1.i) and write_access(tdi, exp1.i.to_s)
+        break if write_access(tdi, reg1)
+        break if is_reg(exp1) and write_access(tdi, exp1)
+        break if is_modrm(exp1) and exp1.b and is_reg(exp1.b) and write_access(tdi, exp1.b)
+        break if is_modrm(exp1) and exp1.i and is_reg(exp1.i) and write_access(tdi, exp1.i)
       end
 
     }
@@ -378,7 +393,7 @@ class Flow
           # Instructions like "pop cx" exhibit a read access to ecx due binding
           # encoding issue in encoding on an alias register.
           (used = true ; break) if read_access(tdi, reg.to_s) and ! (tdi.instruction.opname == 'pop' and is_reg(tdi.instruction.args.first) and not reg.to_s == 'esp')
-          (overwritten = true ; break) if write_access(tdi, reg.to_s)
+          (overwritten = true ; break) if write_access(tdi, reg)
         end
 
         if not used and (overwritten or Semanticless_registers.include? reg.to_s) and is_stack_safe(di)
@@ -409,7 +424,7 @@ class Flow
       next if di.instruction.opname == 'nop'
 
       if is_decl(di)
-
+        puts "decl: #{di}"
         tdi = di
         reg1 = di.instruction.args.first
         exp1 = di.instruction.args.last
@@ -418,7 +433,7 @@ class Flow
 
           next if tdi.instruction.opname == 'nop'
 
-          if write_access(tdi, reg1.to_s)
+          if write_access(tdi, reg1)
 
             op = tdi.instruction.opname
             reg2 = tdi.instruction.args.first
@@ -586,7 +601,7 @@ class Flow
           end
 
           break if read_access(tdi, reg.to_s) and (not op_asso[op1] or (op_asso[op1] and ! (op_asso[op1].include? op2)))
-          break if is_reg(reg) and write_access(tdi, reg.to_s)
+          break if is_reg(reg) and write_access(tdi, reg)
         end
 
       end
@@ -616,14 +631,18 @@ class Flow
   # declaration (or assigment)
   # mov, movzx, lea, pop, and lods instructions only are considered
   def is_decl(di)
+    return (is_decl_reg_or_stack_var(di) and is_reg(di.instruction.args.first))
+  end
+
+  def is_decl_reg_or_stack_var(di)
     const = []
     args = di.instruction.args
-    if ((['mov', 'movzx', 'lodsb', 'lea', 'pop'] .include? di.instruction.opname) and is_reg(args.first)) or
-        (di.instruction.opname == 'xor' and args.first == args.last)  # XORing a reg with itself always results in 0
+    if (((['mov', 'movzx', 'lodsb', 'lea', 'pop'] .include? di.instruction.opname) or
+        (di.instruction.opname == 'xor' and args.first == args.last)) and
+        (is_reg(args.first) or is_stack_var(args.first)))  # XORing a reg with itself always results in 0
 
       b = di.backtrace_binding ||= di.instruction.cpu.get_backtrace_binding(di)
-      const = b.select{|e, val|	e and val and not e.to_s.match('eflag') }
-
+      const = b.select{|e, val| e and val and not e.to_s.match('eflag') }
     end
     not const.empty?
   end
@@ -661,14 +680,24 @@ class Flow
     return (arg and arg.kind_of? Ia32::Reg and arg.symbolic != :rip)
   end
 
+  def is_stack_var(arg)
+    if arg.kind_of? Ia32::ModRM
+      arg = arg.symbolic
+    end
+    return false unless arg.kind_of? Indirection
+    return (arg.externals.size == 1 and arg.externals & [:rbp, :ebp])
+  end
+
   # is_stack_safe : ensure that instruction does not interact with the stack
   def is_stack_safe(di)
-    return !write_access(di, 'esp')
+    return (!write_access(di, di.instruction.cpu.str_to_reg('esp')) and
+            !write_access(di, di.instruction.cpu.str_to_reg('rsp')))
   end
 
   # is_imune : ensure that a subflow (a list of instructions) does not overwrite
   # a
   # target (register)
+  # FIXME doesn't work with modified write_access
   def is_imune(subflow, target)
     imune = true
     subflow.each{|di| imune = false if write_access(di, target)}
@@ -733,11 +762,10 @@ class Flow
     ! (rd.map{|effect| Expression[effect].externals}.flatten & reg_sym).empty?
   end
 
-  # write_access : compute write access to a register
+  # write_access : compute write access to a register/stack var
   # return boolean if access
-  def write_access(di, reg)
-    puts " [-] Test write acces for #{reg} at in #{di}" if $DEBUG
-    reg_sym = reg_alias(reg)
+  def write_access(di, var)
+    puts " [-] Test write access for #{var} at in #{di}" if $DEBUG
 
     begin
       b = di.backtrace_binding ||= di.instruction.cpu.get_backtrace_binding(di)
@@ -745,9 +773,54 @@ class Flow
       raise 'I see a red door and I want i painted black'
     end
 
+    if is_stack_var(var)
+      return write_access_stack_var(di, var)
+    end
+    reg_sym = reg_alias(var)
+
     b.each{|k, v| puts "#{Expression[k]} => #{Expression[v]}"} if $DEBUG
 
     ! (b.keys.map{|effect| Expression[effect].externals}.flatten & reg_sym).empty?
+  end
+
+  def write_access_stack_var(di, var)
+    binding = di.backtrace_binding ||= di.instruction.cpu.get_backtrace_binding(di)
+    write_effect = binding.keys.find do |effect|
+      unless effect.kind_of? Indirection and is_stack_var(effect)
+        # puts " [-] No indirection, ignored: #{Expression[effect]}" if $VERBOSE
+        return false
+      end
+
+      # effect_offset = effect.target.reduce.rexpr
+      # var_offset = var.symbolic.target.reduce.rexpr
+      # if effect_offset == var_offset
+      if stack_vars_equal(effect, var)
+        # puts "     Write access found: #{di} (#{Expression[effect]})" if $VERBOSE
+        true
+      else
+        # puts "     No write access found: #{Expression[effect]}" if $VERBOSE
+        false
+      end
+    end
+    return (not write_effect.nil?)
+  end
+
+  def stack_vars_equal(var1, var2)
+    unless is_stack_var(var1) and is_stack_var(var2)
+      return false
+    end
+    var1_offset, var2_offset = [var1, var2].map do |var|
+     var = (var.kind_of? Ia32::ModRM) ? var.symbolic : var
+     var.target.reduce.rexpr
+   end
+    if var1_offset == var2_offset
+      # puts " [+] Stack vars are equal: #{var1} #{var2}" if $VERBOSE
+      return true
+    else
+      # puts " [-] Stack vars are not equal: #{var1} #{var2}" if $VERBOSE
+      return false
+    end
+
   end
 
   # reg_alias : return all possible alias for a given register. Aliasing
