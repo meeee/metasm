@@ -61,6 +61,7 @@ class Flow
 
             if is_reg(argSrc) and is_reg(argDest) and argSrc.to_s == argDest.to_s	and argDest.sz == sz
               puts "     [-] Burn couple : #{di} - #{tdi}" if $VERBOSE
+              $coreopt_stats[:stack_clean_burn_couple] += 1
               burn_di(di); burn_di(tdi)
               work_in_progress = true
 
@@ -70,6 +71,7 @@ class Flow
               break if not argDest.sz == sz
 
               puts "     [-] Rewrite push-pop as mov : #{di} - #{tdi} " if $VERBOSE
+              $coreopt_stats[:stack_clean_push_pop] += 1
               tdi.opcode = tdi.instruction.cpu.opcode_list.find{ |op| op.name == 'mov' and op.args == [:reg, :modrm] }
               tdi.instruction.opname = tdi.opcode.name
               tdi.instruction.args = [argDest, argSrc]
@@ -152,13 +154,13 @@ class Flow
 
             # pop a
             # mov b, a => useless replacement
-            # FIXME check whether this matches valid replacements
             break if args2.last.to_s == exp1.to_s
 
             break if (not args2.last.sz == reg1.sz) and not is_numeric(exp1)
             break if di.instruction.opname == 'movzx'
 
             puts "    [-] Replace.1 #{Expression[args2.last]} in #{tdi} by its definition #{Expression[exp1]} from #{di}" if $VERBOSE
+            $coreopt_stats[:const_prop_1] += 1
 
             args2.pop
             args2.push exp1
@@ -170,6 +172,7 @@ class Flow
             is_reg(args2.last) and	(args2.first.to_s == args2.last.to_s)
 
               puts "    [-] NULL MOV in #{tdi}, instruction will burn in hell " if $VERBOSE
+              $coreopt_stats[:const_prop_1_null_mov] += 1
               burn_di(tdi)
             end
 
@@ -183,6 +186,7 @@ class Flow
             break if (not args2[1].sz == reg1.sz) and not is_numeric(exp1)
             args2[1] = exp1
             tdi.backtrace_binding = nil
+            $coreopt_stats[:const_prop_imul] += 1
             work_in_progress = true
             break
             # mov a, 0x1234
@@ -192,6 +196,7 @@ class Flow
 
             work_in_progress = true
             puts "    [-] Replace.2 #{Expression[tdi.instruction.args.last]} in #{tdi} using #{Expression[exp1]} from #{di}" if $VERBOSE
+            $coreopt_stats[:const_prop_2] += 1
 
             case Expression[exp1].reduce_rec
             when Ia32::Reg
@@ -214,6 +219,7 @@ class Flow
 
             break if tdi.instruction.args.first.b.to_s == exp1.to_s
             puts "    [-] Replace.3 #{Expression[tdi.instruction.args.first.b]} in #{tdi} using #{Expression[exp1]} from #{di}" if $VERBOSE
+            $coreopt_stats[:const_prop_3] += 1
             tdi.instruction.args.first.b = exp1
             tdi.backtrace_binding = nil
             work_in_progress = true
@@ -226,6 +232,7 @@ class Flow
           (is_modrm(tdi.instruction.args.first) and tdi.instruction.args.first.b.to_s == reg1.to_s))
 
             puts "    [-] Replace.4 #{Expression[tdi.instruction.args.last]} in #{tdi} by its definition #{Expression[exp1]} from #{di}" if $VERBOSE
+            $coreopt_stats[:const_prop_4] += 1
 
             if is_modrm(tdi.instruction.args.first)
 
@@ -293,6 +300,7 @@ class Flow
         tdi.instruction.args.last.b.to_s == di.instruction.args.first.to_s
 
           puts "    [-] LEA Replace.1 #{Expression[tdi.instruction.args.last]} in #{tdi} by its definition #{Expression[exp1]} from #{di}" if $VERBOSE
+          $coreopt_stats[:lea_replace_1] += 1
 
           modrm = tdi.instruction.args.last
           reg2 = tdi.instruction.args.last.b
@@ -315,6 +323,7 @@ class Flow
         elsif is_modrm(tdi.instruction.args.first) and is_reg(reg1) and tdi.instruction.args.first.b.to_s == reg1.to_s
 
           puts "    [-] LEA Replace.2 #{Expression[tdi.instruction.args.last]} in #{tdi} by its definition #{Expression[exp1]}" if $VERBOSE
+          $coreopt_stats[:lea_replace_2] += 1
 
           exp1.sz = tdi.instruction.args.first.sz if is_modrm(exp1) # keep size
           # of
@@ -374,6 +383,7 @@ class Flow
 
         if not used and (overwritten or Semanticless_registers.include? reg.to_s) and is_stack_safe(di)
           puts "    [-] Deleting #{di} as unused definition" if $VERBOSE
+          $coreopt_stats[:decl_clean_delete_unused] += 1
           burn_di(di)
           work_in_progress = true
         end
@@ -422,6 +432,7 @@ class Flow
 
               if res and is_numeric(Expression[res])
                 puts "    [-] Fold #{di} and  #{tdi} wih res : #{Expression[res]}"  if $VERBOSE
+                $coreopt_stats[:const_fold_1] += 1
                 di.instruction.args.pop
                 di.instruction.args.push Expression[res]
                 di.backtrace_binding = nil
@@ -433,6 +444,7 @@ class Flow
               # sub a, reg => mov a, 0
             elsif not is_decl(tdi) and is_reg(exp2)and reg1.to_s == reg2.to_s and exp2.to_s == exp1.to_s and tdi.instruction.opname == 'sub'
               puts "    [-] Fold(2) #{di} and  #{tdi} wih res : #{Expression[Expression[0]]}"  if $VERBOSE
+              $coreopt_stats[:const_fold_2] += 1
               di.instruction.args.pop
               di.instruction.args.push Expression[0]
               burn_di(tdi)
@@ -505,6 +517,7 @@ class Flow
             when  ['not', 'not']
               if exp1.to_s == exp2.to_s
                 puts "    [-] Fold not operations #{di} and  #{tdi}, both have been burnt" if $VERBOSE
+                $coreopt_stats[:op_fold_not_burn] += 1
                 burn_di(di)
                 burn_di(tdi)
                 work_in_progress = true
@@ -519,10 +532,12 @@ class Flow
 
                 if exp1 == exp2
                   puts "    [-] Fold rol/ror operations #{di} and  #{tdi}, both have been burnt" if $VERBOSE
+                  $coreopt_stats[:op_fold_rolror_burn] += 1
                   burn_di(di)
                   burn_di(tdi)
                 else
                   puts "    [-]  Fold rol/ror operations #{di} and  #{tdi}" if $VERBOSE
+                  $coreopt_stats[:op_fold_rolror] += 1
                   di.instruction.args.pop
                   if exp2 > exp1
                     di.opcode = di.instruction.cpu.opcode_list.find { |op| op.name == tdi.opcode.name}
@@ -551,10 +566,12 @@ class Flow
 
                   if Expression[res].reduce_rec == 0
                     puts "    [-] Fold operation #{di} and  #{tdi}, both have been burnt" if $VERBOSE
+                    $coreopt_stats[:op_fold_arithm_burn] += 1
                     burn_di(di)
                     burn_di(tdi)
                   else
                     puts "    [-] Fold operation #{di} and  #{tdi} wih res : #{Expression[res]}" if $VERBOSE
+                    $coreopt_stats[:op_fold_arithm] += 1
                     di.instruction.args.pop
                     di.instruction.args.push Expression[res]
                     di.backtrace_binding = nil

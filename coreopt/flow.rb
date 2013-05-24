@@ -76,7 +76,9 @@ class Flow < Array
 
   # purge_burnt : remove instructions marked as burnt from the flow
   def purge_burnt!
-    self.delete_if{|di| di.kind_of?(Metasm::DecodedInstruction) and di.instruction.opname == 'nop'}
+    self.delete_if{|di| di.kind_of?(Metasm::DecodedInstruction) and
+                        di.instruction.opname == 'nop' and
+                        $coreopt_stats[:purged_instructions] += 1 and true}
   end
 
   def inext(di)
