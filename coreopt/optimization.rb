@@ -123,10 +123,7 @@ class Flow
       next if di.instruction.opname == 'lea'
 
       if is_decl_reg_or_stack_var(di)
-        puts "decl: #{di}"
-        if is_stack_var(di.instruction.args.first)
-          puts "      stack var"
-        end
+        puts "decl: #{di}; stack var: #{is_stack_var(di.instruction.args.first)}"
         tdi = di
         reg1 = di.instruction.args.first
         if di.instruction.opname == 'xor'  # only is_decl for xor x, x
@@ -379,7 +376,9 @@ class Flow
     self.each{|di|
       next if di.instruction.opname == 'nop'
 
-      if is_decl(di) or is_op(di, true)
+      if is_decl_reg_or_stack_var(di) or is_op(di, true)
+        stack_var = is_stack_var(di.instruction.args.first)
+        puts "decl: #{di}; stack var: #{stack_var}"
 
         tdi = di
         reg = di.instruction.args.first
@@ -392,13 +391,14 @@ class Flow
 
           # Instructions like "pop cx" exhibit a read access to ecx due binding
           # encoding issue in encoding on an alias register.
-          (used = true ; break) if read_access(tdi, reg.to_s) and ! (tdi.instruction.opname == 'pop' and is_reg(tdi.instruction.args.first) and not reg.to_s == 'esp')
+          (used = true ; break) if read_access(tdi, reg) and ! (tdi.instruction.opname == 'pop' and is_reg(tdi.instruction.args.first) and not reg.to_s == 'esp')
           (overwritten = true ; break) if write_access(tdi, reg)
         end
 
         if not used and (overwritten or Semanticless_registers.include? reg.to_s) and is_stack_safe(di)
-          puts "    [-] Deleting #{di} as unused definition" if $VERBOSE
-          $coreopt_stats[:decl_clean_delete_unused] += 1
+          puts "    [-] Deleting #{di} as unused definition (stack var: #{stack_var and true})" if $VERBOSE
+          stat_key = (stack_var ? :decl_clean_delete_stack : :decl_clean_delete_reg)
+          $coreopt_stats[stat_key] += 1
           burn_di(di)
           work_in_progress = true
         end
@@ -424,7 +424,7 @@ class Flow
       next if di.instruction.opname == 'nop'
 
       if is_decl(di)
-        puts "decl: #{di}"
+        puts "decl: #{di}; stack var: #{is_stack_var(di.instruction.args.first)}"
         tdi = di
         reg1 = di.instruction.args.first
         exp1 = di.instruction.args.last
@@ -469,7 +469,7 @@ class Flow
             break
           end
 
-          break if read_access(tdi, reg1.to_s)
+          break if read_access(tdi, reg1)
         end
 
       end
@@ -600,7 +600,7 @@ class Flow
             end
           end
 
-          break if read_access(tdi, reg.to_s) and (not op_asso[op1] or (op_asso[op1] and ! (op_asso[op1].include? op2)))
+          break if read_access(tdi, reg) and (not op_asso[op1] or (op_asso[op1] and ! (op_asso[op1].include? op2)))
           break if is_reg(reg) and write_access(tdi, reg)
         end
 
@@ -712,54 +712,61 @@ class Flow
   # rw_access : compute read/write access to a register
   # return boolean if access
   def rw_access(di, reg_sym)
-    puts " [-] Test read/write acces for #{reg} at in #{di}" if $DEBUG
+    puts " [-] Test read/write access for #{reg} at in #{di}" if $DEBUG
     (write_access(di, reg_sym) | read_access(di, reg_sym))
   end
 
-  # read_access : compute read access to a register
+  # read_access : compute read access to a register/stack var
   # return boolean if access
-  def read_access(di, reg)
-    puts " [-] Test read acces for #{reg} at in #{di}" if $DEBUG
+  def read_access(di, var)
+    puts " [-] Test  read access for #{var} at in #{di}" if $DEBUG
 
-    # due to binding encoding specificities (mask for non 32bits alias register,
-    # aka,
-    # ax, al, bc etc.)
-    # a particular attention should be taken when automatically extracting
-    # register
-    # access from binding.
-    if di.instruction.opname == 'movzx' or
-    (di.instruction.opname == 'mov' and is_reg(di.instruction.args.first) and
-    (not di.instruction.args.first.sz == 32) and is_alias(di.instruction.args.first, reg))
-
-      op1 = di.instruction.args.first
-      op2 = di.instruction.args.last
-
-      return true if (is_reg(op2) and is_alias(op2, reg))
-      return true if (op2.b and is_reg(op2.b) and is_alias(op2.b, reg)) if is_modrm(op2)
-      return true if (op2.i and is_reg(op2.i) and is_alias(op2.i, reg)) if is_modrm(op2)
-      return false
-    end
-
-    if di.instruction.opname =~ /cmov[a-zA-Z]*/
-
-      op1 = di.instruction.args.first
-      op2 = di.instruction.args.last
-
-      return true if ((is_reg(op1) and is_alias(op1, reg))) or ((is_reg(op2) and is_alias(op2, reg)))
-      return true if (op1.b and is_reg(op1.b) and is_alias(op1.b, reg)) if is_modrm(op1)
-      return true if (op1.i and is_reg(op1.i) and is_alias(op1.i, reg)) if is_modrm(op1)
-      return true if (op2.b and is_reg(op2.b) and is_alias(op2.b, reg)) if is_modrm(op2)
-      return true if (op2.i and is_reg(op2.i) and is_alias(op2.i, reg)) if is_modrm(op2)
-      return false
-    end
-
-    reg_sym = reg_alias(reg)
     b = di.backtrace_binding ||= di.instruction.cpu.get_backtrace_binding(di)
 
-    rd = (b.keys.grep(Indirection) + b.keys.grep(Expression)).map { |e| Expression[e].expr_indirections.map{|ind| ind.target} }.flatten
-    rd += b.values
+    if is_stack_var(var)
+      result = b.find do |target, source|
+        if source.externals.include?(:rbp)
+          stack_vars_equal(var, source.lexpr) or \
+            stack_vars_equal(var, source.rexpr)
+        else
+          # puts "    read_access: No :rbp or nil lexpr/op: #{di}"
+          false
+        end
+      end
+      return (not result.nil?)
+    else
+      op1 = di.instruction.args.first
+      op2 = di.instruction.args.last
 
-    ! (rd.map{|effect| Expression[effect].externals}.flatten & reg_sym).empty?
+      # due to binding encoding specificities (mask for non 32bits alias register,
+      # aka,
+      # ax, al, bc etc.)
+      # a particular attention should be taken when automatically extracting
+      # register
+      # access from binding.
+      if di.instruction.opname == 'movzx' or
+          (di.instruction.opname == 'mov' and is_reg(op1) and (op1.sz != 32) and is_alias(op1, var))
+        return true if (is_reg(op2) and is_alias(op2, var))
+        return true if (op2.b and is_reg(op2.b) and is_alias(op2.b, var)) if is_modrm(op2)
+        return true if (op2.i and is_reg(op2.i) and is_alias(op2.i, var)) if is_modrm(op2)
+        return false
+      end
+
+      if di.instruction.opname =~ /cmov[a-zA-Z]*/
+        return true if ((is_reg(op1) and is_alias(op1, var))) or ((is_reg(op2) and is_alias(op2, var)))
+        return true if (op1.b and is_reg(op1.b) and is_alias(op1.b, var)) if is_modrm(op1)
+        return true if (op1.i and is_reg(op1.i) and is_alias(op1.i, var)) if is_modrm(op1)
+        return true if (op2.b and is_reg(op2.b) and is_alias(op2.b, var)) if is_modrm(op2)
+        return true if (op2.i and is_reg(op2.i) and is_alias(op2.i, var)) if is_modrm(op2)
+        return false
+      end
+      reg_sym = reg_alias(var)
+
+      rd = (b.keys.grep(Indirection) + b.keys.grep(Expression)).map { |e| Expression[e].expr_indirections.map{|ind| ind.target} }.flatten
+      rd += b.values
+
+      ! (rd.map{|effect| Expression[effect].externals}.flatten & reg_sym).empty?
+    end
   end
 
   # write_access : compute write access to a register/stack var
