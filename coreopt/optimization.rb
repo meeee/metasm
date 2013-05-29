@@ -159,11 +159,25 @@ class Flow
             break if (not args2.last.sz == reg1.sz) and not is_numeric(exp1)
             break if di.instruction.opname == 'movzx'
 
-            puts "    [-] Replace.1 #{Expression[args2.last]} in #{tdi} by its definition #{Expression[exp1]} from #{di}" if $VERBOSE
-            $coreopt_stats[:const_prop_1] += 1
+            if tdi.instruction.opname == 'movsxd'
+              prefix = "    [-] Replace.1_movsxd with mov and"
+              $coreopt_stats[:const_prop_1_movsxd] += 1
+            else
+              prefix = "    [-] Replace.1"
+              $coreopt_stats[:const_prop_1] += 1
+            end
+            puts "#{prefix} #{Expression[args2.last]} in #{tdi} by its definition #{Expression[exp1]} from #{di}" if $VERBOSE
 
-            args2.pop
-            args2.push exp1
+            if tdi.instruction.opname == 'movsxd'
+              # makes no sense to sign-extend a constant value, so sign-extend it here
+              tdi.instruction.args[1] = solve_via_backtrace(di, tdi)
+              raise 'Non-numeric result from propagation to movsxd: #{reuslt}' unless is_numeric(tdi.instruction.args.last)
+              tdi.instruction.opname = 'mov'
+              tdi.opcode = tdi.instruction.cpu.opcode_list.find { |op| op.name == 'mov' }
+            else
+              args2.pop
+              args2.push exp1
+            end
             tdi.backtrace_binding = nil
 
             # mov a, b
@@ -183,13 +197,24 @@ class Flow
           # add c, [rbp+a] => add c, b
           elsif (args2.length == 2 and stack_vars_equal(reg1, args2.last))
             break if di.instruction.opname == 'movzx'
+            raise 'movsxd x, [stack var]' if di.instruction.opname == 'movsxd'
+
             puts "    [-] Replace.1_stack #{Expression[args2.last]} in #{tdi} by its definition #{Expression[exp1]} from #{di}" if $VERBOSE
             $coreopt_stats[:const_prop_1_stack_var] += 1
             args2[1] = exp1
             tdi.backtrace_binding = nil
 
+            # TODO DRY
+            # mov a, b
+            # mov b, a  => mov b, b is useless
+            if tdi.instruction.opname == 'mov' and is_reg(args2.first) and
+            is_reg(args2.last) and  (args2.first.to_s == args2.last.to_s)
+              puts "    [-] NULL MOV in #{tdi}, instruction will burn in hell (stack var)" if $VERBOSE
+              $coreopt_stats[:const_prop_1_null_mov] += 1
+              burn_di(tdi)
+            end
+
             work_in_progress = true
-            # require 'pry'; binding.pry
             break
           # mov a, b
           # imul c, a, imm => imul c, b, imm
@@ -473,6 +498,7 @@ class Flow
               else
                 puts "    [-] Fold failed with non-numeric res: #{res}"
               end
+            # elsif is_op(tdi, false, false) and is_reg_alias?(reg1, reg2)
 
               # mov a, reg
               # sub a, reg => mov a, 0
