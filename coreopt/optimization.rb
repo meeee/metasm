@@ -122,12 +122,17 @@ class Flow
       next if di.instruction.opname == 'nop'
       next if di.instruction.opname == 'lea'
 
-      if is_decl_reg_or_stack_var(di)
+      imul_decl = is_imul_decl(di)
+
+      if is_decl_reg_or_stack_var(di) or imul_decl
         puts "decl: #{di}; stack var: #{is_stack_var(di.instruction.args.first)}"
         tdi = di
         reg1 = di.instruction.args.first
         if di.instruction.opname == 'xor'  # only is_decl for xor x, x
           exp1 = 0
+        elsif imul_decl
+          di.backtrace_binding ||= di.instruction.cpu.get_backtrace_binding(di)
+          exp1 = di.backtrace_binding[backtrace_write_key(di)].reduce
         else
           exp1 = di.instruction.args.last
         end
@@ -166,6 +171,7 @@ class Flow
               prefix = "    [-] Replace.1"
               $coreopt_stats[:const_prop_1] += 1
             end
+            $coreopt_stats[:const_prop_1_imul_decl] += 1 if imul_decl
             puts "#{prefix} #{Expression[args2.last]} in #{tdi} by its definition #{Expression[exp1]} from #{di}" if $VERBOSE
 
             if tdi.instruction.opname == 'movsxd'
@@ -701,6 +707,12 @@ class Flow
       const = b.select{|e, val| e and val and not e.to_s.match('eflag') }
     end
     not const.empty?
+  end
+
+  def is_imul_decl(di)
+    args = di.instruction.args
+    return (di.instruction.opname == 'imul' and args.size == 3 and
+            is_numeric(args[1]) and is_numeric(args[2]))
   end
 
   # is_op : match following instruction types:
