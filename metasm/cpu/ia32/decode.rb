@@ -347,7 +347,12 @@ class Ia32
 
 		opcode_list.map { |ol| ol.basename }.uniq.sort.each { |op|
 			binding = case op
-			when 'mov', 'movsx', 'movzx', 'movsxd', 'movd', 'movq'; lambda { |di, a0, a1| { a0 => Expression[a1] } }
+			when 'mov', 'movsx', 'movzx', 'movd', 'movq'; lambda { |di, a0, a1| { a0 => Expression[a1] } }
+			when 'movsxd'
+				lambda { |di, a0, a1|
+					# sign-extend 32-bit value
+					{ a0 => Expression[[0xffffffff00000000, :*, sign[a1, di]], :+, a1] }
+				}
 			when 'lea'; lambda { |di, a0, a1| { a0 => a1.target } }
 			when 'xchg'; lambda { |di, a0, a1| { a0 => Expression[a1], a1 => Expression[a0] } }
 			when 'add', 'sub', 'or', 'xor', 'and', 'pxor', 'adc', 'sbb'
