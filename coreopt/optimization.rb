@@ -452,7 +452,7 @@ class Flow
               rescue => e
                 binding.pry
               end
-              res2 = solve_arithm(op, exp1, exp2, reg1.sz, reg2.sz)
+              res2 = solve_arithm(op, exp1, exp2, reg1.sz)
 
               if res and is_numeric(Expression[res])
                 puts "    [-] Fold #{di} and  #{tdi} wih res : #{Expression[res]}"  if $VERBOSE

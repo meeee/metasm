@@ -72,6 +72,17 @@ class Flow < Array
   def burn_di(di)
     di.instruction.opname = 'nop'
     di.backtrace_binding = nil
+    next_di = inext(di)
+    next_di.comment ||= []
+    unless di.comment.nil? || di.comment.size == 0
+      next_di.comment += ['from prev: ', di.comment].flatten
+    end
+    if next_di.comment and not next_di.comment.empty?
+      next_di.comment.map! {|c| (count = /^-([0-9]+)i$/.match(c) and
+                                         "-#{count[1].to_i + 1}i") or c }
+    else
+      next_di.comment += ['-1i']
+    end
   end
 
   # purge_burnt : remove instructions marked as burnt from the flow
