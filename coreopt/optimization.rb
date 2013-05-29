@@ -123,7 +123,29 @@ class Flow
       next if di.instruction.opname == 'lea'
 
       imul_decl = is_imul_decl(di)
+      if imul_decl
+        # check whether next instruction reads carry or overflow flag set by imul
+        # theoretically this might also happen later, so this can't catch all cases
+        tdi = inext(di)
+        tdi.backtrace_binding ||= tdi.instruction.cpu.get_backtrace_binding(tdi)
+        externals = tdi.backtrace_binding.values.map {|expr| expr.externals}.flatten
+        unless (externals & [:eflag_o, :eflag_c]).empty?
+          puts "Error: Instruction following imul reads carry/overflow flag"
+          binding.pry
+        end
+        di.backtrace_binding ||= di.instruction.cpu.get_backtrace_binding(di)
+        value = di.backtrace_binding[backtrace_write_key(di)].reduce
+        di_before = di.to_s
+        di.instruction.args.pop
+        di.instruction.args[1] = Expression[value]
+        di.instruction.opname = 'mov'
+        di.opcode = tdi.instruction.cpu.opcode_list.find { |op| op.name == 'mov' }
+        di.backtrace_binding = nil
+        puts "    [-] Replace.decl_imul #{di_before} with mov instruction: #{di}"
+        $coreopt_stats[:const_prop_decl_imul] += 1
 
+        work_in_progress = true
+      end
       if is_decl_reg_or_stack_var(di) or imul_decl
         puts "decl: #{di}; stack var: #{is_stack_var(di.instruction.args.first)}"
         tdi = di
