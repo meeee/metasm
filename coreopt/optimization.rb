@@ -423,7 +423,7 @@ class Flow
     self.each{|di|
       next if di.instruction.opname == 'nop'
 
-      if is_decl(di)
+      if is_decl_reg_or_stack_var(di)
         puts "decl: #{di}; stack var: #{is_stack_var(di.instruction.args.first)}"
         tdi = di
         reg1 = di.instruction.args.first
@@ -441,26 +441,30 @@ class Flow
 
             # mov a, b
             # add a, c  => mov a, (b add c)
-            if is_op(tdi, false, true) and is_reg_alias?(reg1, reg2)
+            if is_op(tdi, false, true) and (stack_vars_equal(reg1, reg2) or is_reg_alias?(reg1, reg2, :ignore_stack_vars => true))
               puts "    [-] Folding with reg_alias" if reg1.to_s != reg2.to_s
-              # backtrace binding always uses 64-bit registers
-              reg1_64 = reg_alias(reg1).first
-              di.backtrace_binding ||= di.instruction.cpu.get_backtrace_binding(di)
-              tdi.backtrace_binding ||= di.instruction.cpu.get_backtrace_binding(di)
               begin
-                res = tdi.backtrace_binding[reg1_64].bind(di.backtrace_binding).reduce
+                res = solve_via_backtrace(di, tdi)
               rescue => e
                 binding.pry
               end
-              res2 = solve_arithm(op, exp1, exp2, reg1.sz)
+              if is_reg(reg1)
+                res2 = solve_arithm(op, exp1, exp2, reg1.sz)
+              else
+                res2 = "solve_arithm doens't work for stack vars"
+              end
 
               if res and is_numeric(Expression[res])
                 puts "    [-] Fold #{di} and  #{tdi} wih res : #{Expression[res]}"  if $VERBOSE
                 if res != res2
                   puts "      Fold results differ: Expected #{res2}, got #{res}"
                 end
-                $coreopt_stats[:const_fold_1] += 1 if reg1.to_s == reg2.to_s
-                $coreopt_stats[:const_fold_1_alias] += 1 if reg1.to_s != reg2.to_s
+                if is_reg(reg1)
+                  $coreopt_stats[:const_fold_1] += 1 if reg1.to_s == reg2.to_s
+                  $coreopt_stats[:const_fold_1_alias] += 1 if reg1.to_s != reg2.to_s
+                else
+                  $coreopt_stats[:const_fold_1_stack] += 1
+                end
                 di.instruction.args.pop
                 di.instruction.args.push Expression[res]
                 di.backtrace_binding = nil
@@ -624,6 +628,17 @@ class Flow
 
     purge_burnt!
     work_in_progress
+  end
+
+  def backtrace_write_key(di)
+    op1 = di.instruction.args.first
+    if is_reg(op1)
+      # backtrace binding always uses 64-bit registers
+      backtrace_write_key = reg_alias(op1).first
+    else
+      # stack var
+     di.backtrace_binding.keys.find { |k| k.kind_of? Indirection }
+    end
   end
 
   # hum TODO
@@ -858,7 +873,10 @@ class Flow
     reg_alias.pop.collect{|reg_str| reg_str.to_sym}
   end
 
-  def is_reg_alias?(reg1, reg2)
+  def is_reg_alias?(reg1, reg2, opts={})
+    if opts[:ignore_stack_vars] and is_stack_var(reg1)
+      return false
+    end
     reg_alias(reg1).include?(reg2.to_s.to_sym)
   end
 
@@ -894,4 +912,10 @@ class Flow
     ret
   end
 
+  def solve_via_backtrace(first_di, second_di)
+    expression = backtrace_write_key(second_di)
+    first_di.backtrace_binding ||= first_di.instruction.cpu.get_backtrace_binding(first_di)
+    second_di.backtrace_binding ||= second_di.instruction.cpu.get_backtrace_binding(second_di)
+    Expression[second_di.backtrace_binding[expression].bind(first_di.backtrace_binding).reduce]
+  end
 end
