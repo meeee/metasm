@@ -441,18 +441,33 @@ class Flow
 
             # mov a, b
             # add a, c  => mov a, (b add c)
-            if is_op(tdi) and reg1.to_s == reg2.to_s
-
-              res = solve_arithm(op, exp1, exp2, reg1.sz)
+            if is_op(tdi, false, true) and is_reg_alias?(reg1, reg2)
+              puts "    [-] Folding with reg_alias" if reg1.to_s != reg2.to_s
+              # backtrace binding always uses 64-bit registers
+              reg1_64 = reg_alias(reg1).first
+              di.backtrace_binding ||= di.instruction.cpu.get_backtrace_binding(di)
+              tdi.backtrace_binding ||= di.instruction.cpu.get_backtrace_binding(di)
+              begin
+                res = tdi.backtrace_binding[reg1_64].bind(di.backtrace_binding).reduce
+              rescue => e
+                binding.pry
+              end
+              res2 = solve_arithm(op, exp1, exp2, reg1.sz, reg2.sz)
 
               if res and is_numeric(Expression[res])
                 puts "    [-] Fold #{di} and  #{tdi} wih res : #{Expression[res]}"  if $VERBOSE
-                $coreopt_stats[:const_fold_1] += 1
+                if res != res2
+                  puts "      Fold results differ: Expected #{res2}, got #{res}"
+                end
+                $coreopt_stats[:const_fold_1] += 1 if reg1.to_s == reg2.to_s
+                $coreopt_stats[:const_fold_1_alias] += 1 if reg1.to_s != reg2.to_s
                 di.instruction.args.pop
                 di.instruction.args.push Expression[res]
                 di.backtrace_binding = nil
                 burn_di(tdi)
                 work_in_progress = true
+              else
+                puts "    [-] Fold failed with non-numeric res: #{res}"
               end
 
               # mov a, reg
@@ -650,14 +665,16 @@ class Flow
   # is_op : match following instruction types:
   # op reg, imm  (op reg, xx when weak def is set)
   # op reg
-  def is_op(di, weak_def = false)
+  def is_op(di, weak_def = false, stack_var_allowed = false)
     return false if not ['add', 'sub', 'or', 'xor', 'and', 'pxor', 'adc', 'sbb', 'inc', 'dec', 'not', 'neg', 'shr', 'shl',  'rol', 'ror'].include? di.instruction.opname
-    case di.instruction.args.length
+    args = di.instruction.args
+    reg_or_stack_var = (is_reg(args.first) or (stack_var_allowed and is_stack_var(args.first)))
+    case args.length
     when 2
-      return (is_reg(di.instruction.args.first) and (weak_def ? true : is_numeric(di.instruction.args.last)))
+      return (reg_or_stack_var and (weak_def ? true : is_numeric(args.last)))
 
     when 1
-      return is_reg(di.instruction.args.first)
+      return reg_or_stack_var
 
     else return false
     end
@@ -839,6 +856,10 @@ class Flow
     reg_alias = Ia32Reg.select{|regexpr| regexpr.include? reg}
     raise "Hazardous reg #{reg} - #{reg_alias}" if not reg_alias or reg_alias.length != 1
     reg_alias.pop.collect{|reg_str| reg_str.to_sym}
+  end
+
+  def is_reg_alias?(reg1, reg2)
+    reg_alias(reg1).include?(reg2.to_s.to_sym)
   end
 
   # solve_arithm : solve arithmetic operations
