@@ -741,7 +741,7 @@ class Flow
   # op reg, imm  (op reg, xx when weak def is set)
   # op reg
   def is_op(di, weak_def = false, stack_var_allowed = false)
-    return false if not ['add', 'sub', 'or', 'xor', 'and', 'pxor', 'adc', 'sbb', 'inc', 'dec', 'not', 'neg', 'shr', 'shl',  'rol', 'ror'].include? di.instruction.opname
+    return false if not ['add', 'sub', 'or', 'xor', 'and', 'pxor', 'adc', 'sbb', 'inc', 'dec', 'not', 'neg', 'sar', 'shr', 'shl',  'rol', 'ror'].include? di.instruction.opname
     args = di.instruction.args
     reg_or_stack_var = (is_reg(args.first) or (stack_var_allowed and is_stack_var(args.first)))
     case args.length
