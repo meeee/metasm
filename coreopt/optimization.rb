@@ -126,21 +126,14 @@ class Flow
       if imul_decl
         # check whether next instruction reads carry or overflow flag set by imul
         # theoretically this might also happen later, so this can't catch all cases
-        tdi = inext(di)
-        tdi.backtrace_binding ||= tdi.instruction.cpu.get_backtrace_binding(tdi)
-        externals = tdi.backtrace_binding.values.map {|expr| expr.externals}.flatten
-        unless (externals & [:eflag_o, :eflag_c]).empty?
+        if read_access_flags(inext(di), [:eflag_o, :eflag_c])
           puts "Error: Instruction following imul reads carry/overflow flag"
           binding.pry
         end
         di.backtrace_binding ||= di.instruction.cpu.get_backtrace_binding(di)
         value = di.backtrace_binding[backtrace_write_key(di)].reduce
         di_before = di.to_s
-        di.instruction.args.pop
-        di.instruction.args[1] = Expression[value]
-        di.instruction.opname = 'mov'
-        di.opcode = tdi.instruction.cpu.opcode_list.find { |op| op.name == 'mov' }
-        di.backtrace_binding = nil
+        change_to_mov(di, value)
         puts "    [-] Replace.decl_imul #{di_before} with mov instruction: #{di}"
         $coreopt_stats[:const_prop_decl_imul] += 1
 
@@ -198,10 +191,8 @@ class Flow
 
             if tdi.instruction.opname == 'movsxd'
               # makes no sense to sign-extend a constant value, so sign-extend it here
-              tdi.instruction.args[1] = solve_via_backtrace(di, tdi)
+              change_to_mov(tdi, solve_via_backtrace(di, tdi))
               raise 'Non-numeric result from propagation to movsxd: #{reuslt}' unless is_numeric(tdi.instruction.args.last)
-              tdi.instruction.opname = 'mov'
-              tdi.opcode = tdi.instruction.cpu.opcode_list.find { |op| op.name == 'mov' }
             else
               args2.pop
               args2.push exp1
@@ -711,6 +702,16 @@ class Flow
     work_in_progress
   end
 
+  def change_to_mov(di, value)
+    args = di.instruction.args
+    # remove all except target register
+    (args.size - 1).times { args.pop }
+    args.push(Expression[value])
+    di.instruction.opname = 'mov'
+    di.opcode = di.instruction.cpu.opcode_list.find { |op| op.name == 'mov' }
+    di.backtrace_binding = nil
+  end
+
   # is_decl : ensure that instruction (actually the DecodedIntruction) is a
   # declaration (or assigment)
   # mov, movzx, lea, pop, and lods instructions only are considered
@@ -859,6 +860,12 @@ class Flow
 
       ! (rd.map{|effect| Expression[effect].externals}.flatten & reg_sym).empty?
     end
+  end
+
+  def read_access_flags(di, flags)
+    di.backtrace_binding ||= di.instruction.cpu.get_backtrace_binding(di)
+    externals = di.backtrace_binding.values.map {|expr| expr.externals}.flatten
+    return (not (externals & flags).empty?)
   end
 
   # write_access : compute write access to a register/stack var
