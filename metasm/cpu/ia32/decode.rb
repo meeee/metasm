@@ -379,7 +379,14 @@ class Ia32
 					# ror a, b  =>  (a >> b) | (a << (32-b))
 					{ a0 => Expression[[[a0, e_op, sz], :|, [a0, inv_op, isz]], :&, mask[di]] }
 				}
-			when 'sar', 'shl', 'sal'; lambda { |di, a0, a1| { a0 => Expression[a0, (op[-1] == ?r ? :>> : :<<), [a1, :%, [opsz(di), 32].max]] } }
+			when 'shl', 'sal'; lambda { |di, a0, a1| { a0 => Expression[a0, (op[-1] == ?r ? :>> : :<<), [a1, :%, [opsz(di), 32].max]] } }
+			when 'sar'
+				lambda { |di, a0, a1|
+					sz0 = di.instruction.args[0].sz
+					sign0 = Expression[[a0, :>>, sz0-1], :&, 1]
+					sign_extension = Expression[[[sign0, :*, ((1 << sz0) - 1)], :<<, [sz0, :-, a1]], :&, mask[di]]
+					{ a0 => Expression[sign_extension, :|, [a0, :>>, [a1, :%, [opsz(di), 32].max]]] }
+				}
 			when 'shr'; lambda { |di, a0, a1| { a0 => Expression[[a0, :&, mask[di]], :>>, [a1, :%, opsz(di)]] } }
 			when 'cwd', 'cdq', 'cqo'; lambda { |di| { Expression[edx, :&, mask[di]] => Expression[mask[di], :*, sign[eax, di]] } }
 			when 'cbw', 'cwde', 'cdqe'; lambda { |di|
