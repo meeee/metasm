@@ -140,7 +140,7 @@ class Flow
         work_in_progress = true
       end
       if is_decl_reg_or_stack_var(di) or imul_decl
-        puts "decl: #{di}; stack var: #{is_stack_var(di.instruction.args.first)}"
+        # puts "decl: #{di}; stack var: #{is_stack_var(di.instruction.args.first)}"
         tdi = di
         reg1 = di.instruction.args.first
         if di.instruction.opname == 'xor'  # only is_decl for xor x, x
@@ -237,10 +237,16 @@ class Flow
             break
           # mov a, b
           # imul c, a, imm => imul c, b, imm
-          elsif (tdi.instruction.opname == 'imul' and args2.length == 3 and is_reg(args2[1]) and reg1.to_s == args2[1].to_s)
-            puts "    [-] Replace.imul #{Expression[args2[1]]} in #{tdi} by its definition #{Expression[exp1]} from #{di}" if $VERBOSE
+          elsif (tdi.instruction.opname == 'imul' and args2.length == 3 and is_reg(args2[1]) and is_reg_alias?(reg1, args2[1],  :ignore_stack_vars => true))
             break if (not args2[1].sz == reg1.sz) and not is_numeric(exp1)
-            args2[1] = exp1
+            break unless [32, 64].include?(reg1.sz) and [32, 64].include?(args2[1].sz)
+            if is_numeric(exp1)
+              exp1_masked = Expression[exp1, :&, ((1 << args2[1].sz) - 1)].reduce
+            else
+              exp1_masked = exp1
+            end
+            puts "    [-] Replace.imul #{Expression[args2[1]]} in #{tdi} by its definition #{Expression[exp1]} (masked: #{Expression[exp1_masked]}) from #{di}" if $VERBOSE
+            args2[1] = exp1_masked
             tdi.backtrace_binding = nil
             $coreopt_stats[:const_prop_imul] += 1
             work_in_progress = true
@@ -259,9 +265,15 @@ class Flow
               tdi.instruction.args.last.b = exp1
               tdi.backtrace_binding = nil
             when Integer
-              tdi.instruction.args.last.b = nil
-              tdi.instruction.args.last.imm = exp1
+              args2.last.b = nil
+              args2.last.imm = Expression[args2.last.imm, :+, exp1].reduce
               tdi.backtrace_binding = nil
+              tdi.backtrace_binding ||= tdi.instruction.cpu.get_backtrace_binding(tdi)
+              reduced = tdi.backtrace_binding[backtrace_write_key(tdi)].reduce
+              if is_numeric(reduced)
+                change_to_mov(tdi, reduced)
+                puts "        Replace with mov: #{tdi}"
+              end
             else
               work_in_progress = false
             end
@@ -422,7 +434,7 @@ class Flow
 
       if is_decl_reg_or_stack_var(di) or is_op(di, true)
         stack_var = is_stack_var(di.instruction.args.first)
-        puts "decl: #{di}; stack var: #{stack_var}"
+        # puts "decl: #{di}; stack var: #{stack_var}"
 
         tdi = di
         reg = di.instruction.args.first
@@ -468,7 +480,7 @@ class Flow
       next if di.instruction.opname == 'nop'
 
       if is_decl_reg_or_stack_var(di)
-        puts "decl: #{di}; stack var: #{is_stack_var(di.instruction.args.first)}"
+        # puts "decl: #{di}; stack var: #{is_stack_var(di.instruction.args.first)}"
         tdi = di
         reg1 = di.instruction.args.first
         exp1 = di.instruction.args.last
