@@ -219,9 +219,14 @@ class Flow
             raise 'movsxd x, [stack var]' if di.instruction.opname == 'movsxd'
 
             puts "    [-] Replace.1_stack #{Expression[args2.last]} in #{tdi} by its definition #{Expression[exp1]} from #{di}" if $VERBOSE
-            $coreopt_stats[:const_prop_1_stack_var] += 1
-            args2[1] = exp1
-            tdi.backtrace_binding = nil
+            if tdi.instruction.opname == 'lea'
+              $coreopt_stats[:const_prop_1_stack_var_lea] += 1
+              change_to_mov(tdi, exp1)
+            else
+              $coreopt_stats[:const_prop_1_stack_var] += 1
+              args2[1] = exp1
+              tdi.backtrace_binding = nil
+            end
 
             # TODO DRY
             # mov a, b
