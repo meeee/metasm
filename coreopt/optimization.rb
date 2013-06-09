@@ -190,7 +190,7 @@ class Flow
             puts "#{prefix} #{Expression[args2.last]} in #{tdi} by its definition #{Expression[exp1]} from #{di}" if $VERBOSE
 
             if tdi.instruction.opname == 'movsxd'
-              break if is_modrm(args2.last)
+              break if is_modrm(exp1)
               # makes no sense to sign-extend a constant value, so sign-extend it here
               change_to_mov(tdi, solve_via_backtrace(di, tdi))
               if not is_numeric(tdi.instruction.args.last)
