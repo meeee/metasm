@@ -42,12 +42,15 @@ class Flow < Array
     pass = 0
     puts self if $VERBOSE
 
-    while (peephole | stack_cleaning | decl_cleaning | operation_folding | constant_propagation | constant_folding)
+    # disabled peephole and stack_cleaning
+    while (decl_cleaning | operation_folding | constant_propagation | constant_folding)
       pass +=1
       if $VERBOSE
         puts "\n----- pass #{pass} -------\n"
-        self.each{|di| puts di}
-        puts "\n---------\n"
+        if $DEBUG
+          self.each{|di| puts di}
+          puts "\n---------\n"
+        end
       end
     end
 
