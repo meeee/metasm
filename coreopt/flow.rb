@@ -73,6 +73,7 @@ class Flow < Array
     di.instruction.opname = 'nop'
     di.backtrace_binding = nil
     next_di = inext(di)
+    return if next_di.nil?
     next_di.comment ||= []
     unless di.comment.nil? || di.comment.size == 0
       next_di.comment += ['from prev: ', di.comment].flatten
