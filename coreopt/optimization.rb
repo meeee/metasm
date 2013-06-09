@@ -190,9 +190,13 @@ class Flow
             puts "#{prefix} #{Expression[args2.last]} in #{tdi} by its definition #{Expression[exp1]} from #{di}" if $VERBOSE
 
             if tdi.instruction.opname == 'movsxd'
+              break if is_modrm(args2.last)
               # makes no sense to sign-extend a constant value, so sign-extend it here
               change_to_mov(tdi, solve_via_backtrace(di, tdi))
-              raise 'Non-numeric result from propagation to movsxd: #{reuslt}' unless is_numeric(tdi.instruction.args.last)
+              if not is_numeric(tdi.instruction.args.last)
+                puts "Error: Non-numeric result from propagation to movsxd: #{tdi.instruction.args.last}"
+                binding.pry
+              end
             else
               args2.pop
               args2.push exp1
@@ -892,8 +896,9 @@ class Flow
 
     begin
       b = di.backtrace_binding ||= di.instruction.cpu.get_backtrace_binding(di)
-    rescue
-      raise 'I see a red door and I want i painted black'
+    rescue => e
+      puts 'I see a red door and I want i painted black'
+      binding.pry
     end
 
     if is_stack_var(var)
