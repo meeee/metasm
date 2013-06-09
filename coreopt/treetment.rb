@@ -60,7 +60,7 @@ module CoreOpt
     raise 'should be a loop' if rec <= 0
     raise 'invalid arg: nil block' if not block
 
-    puts "\n* deep go at: #{Expression[block.address]} ; rec: #{rec}" if $DEBUG
+    puts "\n* deep go at: #{Expression[block.address]} ; rec: #{rec}; comment: #{(block.list.first.comment || []).join(', ')}" if $VERBOSE
     update(block.address)
 
     flow.concat block.list
