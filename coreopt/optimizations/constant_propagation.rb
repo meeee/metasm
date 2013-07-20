@@ -166,115 +166,118 @@ module Metasm
           work_in_progress = false
           return work_in_progress if self.empty?
 
-          self.each{|di|
-            # return :next_outer if di.instruction.opname == 'nop'
-            # return :next_outer if di.instruction.opname == 'lea'
-            next if di.instruction.opname == 'nop'
-            next if di.instruction.opname == 'lea'
-
-            imul_decl = is_imul_decl(di)
-            if imul_decl
-              replace_imul_declaration(di)
-              work_in_progress = true
-            end
-            if is_decl_reg_or_stack_var(di) or imul_decl
-              # puts "decl: #{di}; stack var: #{is_stack_var(di.instruction.args.first)}"
-              tdi = di
-              reg1 = di.instruction.args.first
-              if di.instruction.opname == 'xor'  # only is_decl for xor x, x
-                exp1 = 0
-              elsif imul_decl
-                di.backtrace_binding ||= di.instruction.cpu.get_backtrace_binding(di)
-                exp1 = di.backtrace_binding[backtrace_write_key(di)].reduce
-              else
-                exp1 = di.instruction.args.last
-              end
-
-              while tdi = inext(tdi)
-
-                next if tdi.instruction.opname == 'nop'
-                next if tdi.instruction.opname == 'test' and not is_reg(exp1)
-
-                args2 = tdi.instruction.args
-
-                # mov a, b      mov a, b
-                # add c, a  =>  add c, b
-                if (is_reg(reg1) and args2.length == 2 and is_reg(args2.last) and
-                (args2.last.to_s == reg1.to_s or reg_alias(reg1.to_s).include? args2.last.to_s.to_sym)) and
-                (not di.instruction.opname == 'lea') and (not tdi.instruction.opname == 'lea')
-                  # #and (tdi.instruction.args.last.sz == reg1.sz)
-
-                  # mov a, dword ptr [...]
-                  # xx dword ptr [...], a  => xx dword ptr [...], dword ptr [...] is
-                  # not supported
-                  # in IA32
-                  break if is_modrm(exp1) and is_modrm(args2.first)
-
-                  # pop a
-                  # mov b, a => useless replacement
-                  break if args2.last.to_s == exp1.to_s
-
-                  break if (not args2.last.sz == reg1.sz) and not is_numeric(exp1)
-                  break if di.instruction.opname == 'movzx'
-
-                  propagate_register_value(di, tdi, exp1, imul_decl)
-                  work_in_progress = true
-                  break
-                # mov [rbp+a], b
-                # add c, [rbp+a] => add c, b
-                elsif (args2.length == 2 and stack_vars_equal(reg1, args2.last))
-                  break if di.instruction.opname == 'movzx'
-                  propagate_stack_variable_value(di, tdi, exp1)
-                  work_in_progress = true
-                  break
-                # mov a, b
-                # imul c, a, imm => imul c, b, imm
-                elsif (tdi.instruction.opname == 'imul' and args2.length == 3 and is_reg(args2[1]) and is_reg_alias?(reg1, args2[1],  :ignore_stack_vars => true))
-                  break if (not args2[1].sz == reg1.sz) and not is_numeric(exp1)
-                  break unless [32, 64].include?(reg1.sz) and [32, 64].include?(args2[1].sz)
-                  propagate_register_value_to_imul(di, tdi, exp1)
-                  work_in_progress = true
-                  break
-                  # mov a, 0x1234
-                  # mov b, dword ptr [a]
-                elsif di.instruction.opname == 'mov' and is_modrm(tdi.instruction.args.last) and not is_modrm(exp1) and
-                tdi.instruction.args.last.b.to_s == reg1.to_s
-                  work_in_progress = propagate_register_to_indirection(di, tdi, exp1)
-                  break
-
-                  # mov a, b      mov a, b
-                  # mov [a], c => mov [b], c
-                elsif di.instruction.opname == 'mov' and is_reg(reg1) and is_reg(exp1) and
-                is_modrm(tdi.instruction.args.first) and tdi.instruction.args.first.b.to_s == reg1.to_s
-
-                  break if tdi.instruction.args.first.b.to_s == exp1.to_s
-                  propagate_register_to_target_indirection(di, tdi, exp1)
-                  work_in_progress = true
-                  break
-
-                  # mov a, b      mov a, b         or     mov a, b      mov a, b
-                  # push a    =>  push b                  pop [a]  =>  pop [b]
-                elsif di.instruction.opname == 'mov' and (tdi.instruction.opname == 'push') and tdi.instruction.args.length == 1 and
-                ((is_reg(tdi.instruction.args.first) and tdi.instruction.args.first.to_s == reg1.to_s) or
-                (is_modrm(tdi.instruction.args.first) and tdi.instruction.args.first.b.to_s == reg1.to_s))
-                  work_in_progress, next_step = propagate_register_to_push(di, tdi, exp1)
-                  raise 'next_step != :next_inner' unless next_step == :next_inner
-                  break
-
-                end
-
-                break if write_access(tdi, reg1)
-                break if is_reg(exp1) and write_access(tdi, exp1)
-                break if is_modrm(exp1) and exp1.b and is_reg(exp1.b) and write_access(tdi, exp1.b)
-                break if is_modrm(exp1) and exp1.i and is_reg(exp1.i) and write_access(tdi, exp1.i)
-              end
-
-            end
-          }
+          self.each do |di|
+            work_in_progress = constant_propagation_starting_from(di, work_in_progress)
+          end
 
           purge_burnt!
           work_in_progress
         end
+
+        def constant_propagation_starting_from(di, work_in_progress)
+          # return :next_outer if di.instruction.opname == 'nop'
+          # return :next_outer if di.instruction.opname == 'lea'
+          return work_in_progress if ['nop', 'lea'].include? di.instruction.opname
+
+          imul_decl = is_imul_decl(di)
+          if imul_decl
+            replace_imul_declaration(di)
+            work_in_progress = true
+          end
+          return work_in_progress unless is_decl_reg_or_stack_var(di) or imul_decl
+          # puts "decl: #{di}; stack var: #{is_stack_var(di.instruction.args.first)}"
+          tdi = di
+          reg1 = di.instruction.args.first
+          if di.instruction.opname == 'xor'  # only is_decl for xor x, x
+            exp1 = 0
+          elsif imul_decl
+            di.backtrace_binding ||= di.instruction.cpu.get_backtrace_binding(di)
+            exp1 = di.backtrace_binding[backtrace_write_key(di)].reduce
+          else
+            exp1 = di.instruction.args.last
+          end
+
+          while tdi = inext(tdi)
+
+            next if tdi.instruction.opname == 'nop'
+            next if tdi.instruction.opname == 'test' and not is_reg(exp1)
+
+            args2 = tdi.instruction.args
+
+            # mov a, b      mov a, b
+            # add c, a  =>  add c, b
+            if (is_reg(reg1) and args2.length == 2 and is_reg(args2.last) and
+            (args2.last.to_s == reg1.to_s or reg_alias(reg1.to_s).include? args2.last.to_s.to_sym)) and
+            (not di.instruction.opname == 'lea') and (not tdi.instruction.opname == 'lea')
+              # #and (tdi.instruction.args.last.sz == reg1.sz)
+
+              # mov a, dword ptr [...]
+              # xx dword ptr [...], a  => xx dword ptr [...], dword ptr [...] is
+              # not supported
+              # in IA32
+              break if is_modrm(exp1) and is_modrm(args2.first)
+
+              # pop a
+              # mov b, a => useless replacement
+              break if args2.last.to_s == exp1.to_s
+
+              break if (not args2.last.sz == reg1.sz) and not is_numeric(exp1)
+              break if di.instruction.opname == 'movzx'
+
+              propagate_register_value(di, tdi, exp1, imul_decl)
+              work_in_progress = true
+              break
+            # mov [rbp+a], b
+            # add c, [rbp+a] => add c, b
+            elsif (args2.length == 2 and stack_vars_equal(reg1, args2.last))
+              break if di.instruction.opname == 'movzx'
+              propagate_stack_variable_value(di, tdi, exp1)
+              work_in_progress = true
+              break
+            # mov a, b
+            # imul c, a, imm => imul c, b, imm
+            elsif (tdi.instruction.opname == 'imul' and args2.length == 3 and is_reg(args2[1]) and is_reg_alias?(reg1, args2[1],  :ignore_stack_vars => true))
+              break if (not args2[1].sz == reg1.sz) and not is_numeric(exp1)
+              break unless [32, 64].include?(reg1.sz) and [32, 64].include?(args2[1].sz)
+              propagate_register_value_to_imul(di, tdi, exp1)
+              work_in_progress = true
+              break
+              # mov a, 0x1234
+              # mov b, dword ptr [a]
+            elsif di.instruction.opname == 'mov' and is_modrm(tdi.instruction.args.last) and not is_modrm(exp1) and
+            tdi.instruction.args.last.b.to_s == reg1.to_s
+              work_in_progress = propagate_register_to_indirection(di, tdi, exp1)
+              break
+
+              # mov a, b      mov a, b
+              # mov [a], c => mov [b], c
+            elsif di.instruction.opname == 'mov' and is_reg(reg1) and is_reg(exp1) and
+            is_modrm(tdi.instruction.args.first) and tdi.instruction.args.first.b.to_s == reg1.to_s
+
+              break if tdi.instruction.args.first.b.to_s == exp1.to_s
+              propagate_register_to_target_indirection(di, tdi, exp1)
+              work_in_progress = true
+              break
+
+              # mov a, b      mov a, b         or     mov a, b      mov a, b
+              # push a    =>  push b                  pop [a]  =>  pop [b]
+            elsif di.instruction.opname == 'mov' and (tdi.instruction.opname == 'push') and tdi.instruction.args.length == 1 and
+            ((is_reg(tdi.instruction.args.first) and tdi.instruction.args.first.to_s == reg1.to_s) or
+            (is_modrm(tdi.instruction.args.first) and tdi.instruction.args.first.b.to_s == reg1.to_s))
+              work_in_progress, next_step = propagate_register_to_push(di, tdi, exp1)
+              raise 'next_step != :next_inner' unless next_step == :next_inner
+              break
+
+            end
+
+            break if write_access(tdi, reg1)
+            break if is_reg(exp1) and write_access(tdi, exp1)
+            break if is_modrm(exp1) and exp1.b and is_reg(exp1.b) and write_access(tdi, exp1.b)
+            break if is_modrm(exp1) and exp1.i and is_reg(exp1.i) and write_access(tdi, exp1.i)
+          end
+          work_in_progress
+        end
+
       end
     end
   end
