@@ -58,13 +58,11 @@ module Metasm
           work_in_progress
         end
 
-        def constant_propagate_between_instructions(di, tdi, exp1)
-          reg1 = di.instruction.args.first
-          args2 = tdi.instruction.args
+        def constant_propagate_between_instructions(source_di, target_di, source_value)
+          reg1 = source_di.instruction.args.first
+          args2 = target_di.instruction.args
 
-          return :no_match if tdi.instruction.opname == 'nop'
-          return :no_match if tdi.instruction.opname == 'test' and not is_reg(exp1)
-
+          return :no_match unless preconditions_satisfied?(source_di, target_di, source_value)
 
           [:replace_imul_declaration,
            :propagate_register_value,
@@ -74,16 +72,38 @@ module Metasm
            :propagate_register_to_target_indirection,
            :propagate_register_to_push
           ].each do |operation|
-            result = send(operation, di, tdi, exp1)
+            result = send(operation, source_di, target_di, source_value)
             return result if result != :no_match
           end
 
-          return :condition_failed if write_access(tdi, reg1)
-          return :condition_failed if is_reg(exp1) and write_access(tdi, exp1)
-          return :condition_failed if is_modrm(exp1) and exp1.b and is_reg(exp1.b) and write_access(tdi, exp1.b)
-          return :condition_failed if is_modrm(exp1) and exp1.i and is_reg(exp1.i) and write_access(tdi, exp1.i)
+          return :condition_failed unless continue_propagation?(source_di, target_di, source_value)
         end
 
+        def preconditions_satisfied?(source_di, target_di, source_value)
+          !(
+            target_di.instruction.opname == 'nop' or
+            (target_di.instruction.opname == 'test' and not is_reg(source_value)))
+        end
+
+        def continue_propagation?(source_di, target_di, source_value)
+          reg1 = source_di.instruction.args.first
+          !(
+            # target di writes to target memory location(reg1) of source di
+            write_access(target_di, reg1) or
+            # source_value is a register and target di writes to this register
+            (is_reg(source_value) and
+              write_access(target_di, source_value)) or
+            # source_value is an offset and target di writes to base
+            (is_modrm(source_value) and
+              source_value.b and
+              is_reg(source_value.b) and
+              write_access(target_di, source_value.b)) or
+            # source_value is an offset and target di writes to index
+            (is_modrm(source_value) and
+              source_value.i and
+              is_reg(source_value.i) and
+              write_access(target_di, source_value.i)))
+        end
       end
     end
   end
