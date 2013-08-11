@@ -33,8 +33,6 @@ module Metasm
           return :condition_failed if (not args2.last.sz == reg1.sz) and not is_numeric(exp1)
           return :condition_failed if di.instruction.opname == 'movzx'
 
-          # propagate_register_value(di, tdi, exp1, imul_decl)
-
           if tdi.instruction.opname == 'movsxd'
             prefix = "    [-] Replace.1_movsxd with mov and"
             $coreopt_stats[:const_prop_1_movsxd] += 1
@@ -74,7 +72,7 @@ module Metasm
           return :instruction_modified
         end
 
-        def propagate_stack_variable_value(di, tdi, exp1)
+        def propagate_stack_variable_value(di, tdi, exp1, imul_decl)
           # mov [rbp+a], b
           # add c, [rbp+a] => add c, b
           reg1 = di.instruction.args.first
@@ -108,7 +106,7 @@ module Metasm
           return :instruction_modified
         end
 
-        def propagate_register_value_to_imul(di, tdi, exp1)
+        def propagate_register_value_to_imul(di, tdi, exp1, imul_decl)
           # mov a, b
           # imul c, a, imm => imul c, b, imm
           reg1 = di.instruction.args.first
@@ -135,7 +133,7 @@ module Metasm
           return :instruction_modified
         end
 
-        def propagate_register_to_indirection(source_di, target_di, exp1)
+        def propagate_register_to_indirection(source_di, target_di, exp1, imul_decl)
           # mov a, 0x1234
           # mov b, dword ptr [a]
           reg1 = source_di.instruction.args.first
@@ -173,7 +171,7 @@ module Metasm
           return :instruction_modified
         end
 
-        def propagate_register_to_target_indirection(di, tdi, exp1)
+        def propagate_register_to_target_indirection(di, tdi, exp1, imul_decl)
           # mov a, b      mov a, b
           # mov [a], c => mov [b], c
           reg1 = di.instruction.args.first
@@ -194,7 +192,7 @@ module Metasm
           return :instruction_modified
         end
 
-        def propagate_register_to_push(di, tdi, exp1)
+        def propagate_register_to_push(di, tdi, exp1, imul_decl)
           # mov a, b      mov a, b         or     mov a, b      mov a, b
           # push a    =>  push b                  pop [a]  =>  pop [b]
           reg1 = di.instruction.args.first

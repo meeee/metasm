@@ -90,23 +90,16 @@ module Metasm
           return :no_match if tdi.instruction.opname == 'test' and not is_reg(exp1)
 
 
-          result = propagate_register_value(di, tdi, exp1, imul_decl)
-          return result if result != :no_match
-
-          result = propagate_stack_variable_value(di, tdi, exp1)
-          return result if result != :no_match
-
-          result = propagate_register_value_to_imul(di, tdi, exp1)
-          return result if result != :no_match
-
-          result = propagate_register_to_indirection(di, tdi, exp1)
-          return result if result != :no_match
-
-          result = propagate_register_to_target_indirection(di, tdi, exp1)
-          return result if result != :no_match
-
-          result = propagate_register_to_push(di, tdi, exp1)
-          return result if result != :no_match
+          [:propagate_register_value,
+           :propagate_stack_variable_value,
+           :propagate_register_value_to_imul,
+           :propagate_register_to_indirection,
+           :propagate_register_to_target_indirection,
+           :propagate_register_to_push
+          ].each do |operation|
+            result = send(operation, di, tdi, exp1, imul_decl)
+            return result if result != :no_match
+          end
 
           return :condition_failed if write_access(tdi, reg1)
           return :condition_failed if is_reg(exp1) and write_access(tdi, exp1)
