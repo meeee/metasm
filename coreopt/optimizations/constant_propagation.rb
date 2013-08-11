@@ -9,22 +9,6 @@ module Metasm
 
       module ConstantPropagator # < Optimizer
         include Operations
-
-        def replace_imul_declaration(di)
-            # check whether next instruction reads carry or overflow flag set by imul
-            # theoretically this might also happen later, so this can't catch all cases
-            if read_access_flags(inext(di), [:eflag_o, :eflag_c])
-              puts "Error: Instruction following imul reads carry/overflow flag"
-              binding.pry
-            end
-            di.backtrace_binding ||= di.instruction.cpu.get_backtrace_binding(di)
-            value = di.backtrace_binding[backtrace_write_key(di)].reduce
-            di_before = di.to_s
-            change_to_mov(di, value)
-            puts "    [-] Replace.decl_imul #{di_before} with mov instruction: #{di}"
-            $coreopt_stats[:const_prop_decl_imul] += 1
-        end
-
         ##
         # Loops
         #
@@ -43,31 +27,23 @@ module Metasm
           work_in_progress
         end
 
-        def constant_propagation_starting_from(di)
-          return false if ['nop', 'lea'].include? di.instruction.opname
+        def constant_propagation_starting_from(source_di)
+          return false if ['nop', 'lea'].include? source_di.instruction.opname
 
           work_in_progress = false
 
-          imul_decl = is_imul_decl(di)
-          if imul_decl
-            replace_imul_declaration(di)
-            work_in_progress = true
-          end
-          return work_in_progress unless is_decl_reg_or_stack_var(di) or imul_decl
-          # puts "decl: #{di}; stack var: #{is_stack_var(di.instruction.args.first)}"
-          tdi = di
-          reg1 = di.instruction.args.first
-          if di.instruction.opname == 'xor'  # only is_decl for xor x, x
-            exp1 = 0
-          elsif imul_decl
-            di.backtrace_binding ||= di.instruction.cpu.get_backtrace_binding(di)
-            exp1 = di.backtrace_binding[backtrace_write_key(di)].reduce
+          return work_in_progress unless is_decl_reg_or_stack_var(source_di)
+          # puts "decl: #{source_di}; stack var: #{is_stack_var(source_di.instruction.args.first)}"
+          target_di = source_di
+          reg1 = source_di.instruction.args.first
+          if source_di.instruction.opname == 'xor'  # only is_decl for is xor x, x
+            source_value = 0
           else
-            exp1 = di.instruction.args.last
+            source_value = source_di.instruction.args.last
           end
 
-          while tdi = inext(tdi)
-            case constant_propagate_between_instructions(di, tdi, exp1, imul_decl)
+          while target_di = inext(target_di)
+            case constant_propagate_between_instructions(source_di, target_di, source_value)
             when :instruction_modified
               # work_in_progress, go to next source instruction
               return true  # work_in_progress
@@ -75,14 +51,14 @@ module Metasm
               # found nothing to change, try next target instruction
               next
             when :condition_failed
-              # propagation condition failed, stop propagating this di
+              # propagation condition failed, stop propagating this source_di
               return work_in_progress
             end
           end
           work_in_progress
         end
 
-        def constant_propagate_between_instructions(di, tdi, exp1, imul_decl)
+        def constant_propagate_between_instructions(di, tdi, exp1)
           reg1 = di.instruction.args.first
           args2 = tdi.instruction.args
 
@@ -90,14 +66,15 @@ module Metasm
           return :no_match if tdi.instruction.opname == 'test' and not is_reg(exp1)
 
 
-          [:propagate_register_value,
+          [:replace_imul_declaration,
+           :propagate_register_value,
            :propagate_stack_variable_value,
            :propagate_register_value_to_imul,
            :propagate_register_to_indirection,
            :propagate_register_to_target_indirection,
            :propagate_register_to_push
           ].each do |operation|
-            result = send(operation, di, tdi, exp1, imul_decl)
+            result = send(operation, di, tdi, exp1)
             return result if result != :no_match
           end
 
