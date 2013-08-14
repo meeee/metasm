@@ -15,9 +15,9 @@ module Metasm
 
         def constant_propagation #(di, tdi)
           puts "\n * constant propagation *" if $VERBOSE
+          return false if self.empty?
 
           work_in_progress = false
-          return work_in_progress if self.empty?
 
           self.each do |di|
             work_in_progress |= constant_propagation_starting_from(di)
@@ -28,20 +28,12 @@ module Metasm
         end
 
         def constant_propagation_starting_from(source_di)
-          return false if ['nop', 'lea'].include? source_di.instruction.opname
-
-          work_in_progress = false
-
-          return work_in_progress unless is_decl_reg_or_stack_var(source_di)
+          return false unless source_preconditions_satisfied?(source_di)
           # puts "decl: #{source_di}; stack var: #{is_stack_var(source_di.instruction.args.first)}"
-          target_di = source_di
-          reg1 = source_di.instruction.args.first
-          if source_di.instruction.opname == 'xor'  # only is_decl for is xor x, x
-            source_value = 0
-          else
-            source_value = source_di.instruction.args.last
-          end
 
+          source_value = source_value_from_di(source_di)
+
+          target_di = source_di
           while target_di = inext(target_di)
             case constant_propagate_between_instructions(source_di, target_di, source_value)
             when :instruction_modified
@@ -52,26 +44,16 @@ module Metasm
               next
             when :condition_failed
               # propagation condition failed, stop propagating this source_di
-              return work_in_progress
+              return false
             end
           end
-          work_in_progress
+          false
         end
 
         def constant_propagate_between_instructions(source_di, target_di, source_value)
-          reg1 = source_di.instruction.args.first
-          args2 = target_di.instruction.args
+          return :no_match unless target_preconditions_satisfied?(source_di, target_di, source_value)
 
-          return :no_match unless preconditions_satisfied?(source_di, target_di, source_value)
-
-          [:replace_imul_declaration,
-           :propagate_register_value,
-           :propagate_stack_variable_value,
-           :propagate_register_value_to_imul,
-           :propagate_register_to_indirection,
-           :propagate_register_to_target_indirection,
-           :propagate_register_to_push
-          ].each do |operation|
+          operations.each do |operation|
             result = send(operation, source_di, target_di, source_value)
             return result if result != :no_match
           end
@@ -79,7 +61,25 @@ module Metasm
           return :condition_failed unless continue_propagation?(source_di, target_di, source_value)
         end
 
-        def preconditions_satisfied?(source_di, target_di, source_value)
+        #
+        # Callbacks used by walker - these are for constant propagation
+        #
+
+        def source_preconditions_satisfied?(source_di)
+          (not ['nop', 'lea'].include? source_di.instruction.opname) and
+            is_decl_reg_or_stack_var(source_di)
+        end
+
+        def source_value_from_di(source_di)
+          if source_di.instruction.opname == 'xor'
+            # for XOR x, x - other xors are filtered by is_decl
+            0
+          else
+            source_di.instruction.args.last
+          end
+        end
+
+        def target_preconditions_satisfied?(source_di, target_di, source_value)
           !(
             target_di.instruction.opname == 'nop' or
             (target_di.instruction.opname == 'test' and not is_reg(source_value)))
@@ -103,6 +103,16 @@ module Metasm
               source_value.i and
               is_reg(source_value.i) and
               write_access(target_di, source_value.i)))
+        end
+
+        def operations
+          [:replace_imul_declaration,
+           :propagate_register_value,
+           :propagate_stack_variable_value,
+           :propagate_register_value_to_imul,
+           :propagate_register_to_indirection,
+           :propagate_register_to_target_indirection,
+           :propagate_register_to_push]
         end
       end
     end
