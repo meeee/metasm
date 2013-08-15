@@ -65,18 +65,18 @@ module Metasm
       end
 
       def source_preconditions_satisfied?(source_di)
-        true
+        source_di.instruction.opname != 'nop'
       end
 
       def source_value_from_di(source_di)
         nil
       end
 
-      def target_preconditions_satisfied(source_di, target_di, source_value)
-        true
+      def target_preconditions_satisfied?(source_di, target_di, source_value)
+        target_di.instruction.opname != 'nop'
       end
 
-      def continue_propagation(source_di, target_di, source_value)
+      def continue_propagation?(source_di, target_di, source_value)
         true
       end
 

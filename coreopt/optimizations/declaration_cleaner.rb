@@ -37,12 +37,7 @@ module Metasm::CoreOpt
       end
 
       def source_preconditions_satisfied?(source_di)
-        source_di.instruction.opname != 'nop' and
-          (is_decl_reg_or_stack_var(source_di) or is_op(source_di, true))
-      end
-
-      def target_preconditions_satisfied?(source_di, target_di, source_value)
-        target_di.instruction.opname != 'nop'
+        super and is_decl_reg_or_stack_var(source_di) or is_op(source_di, true)
       end
 
       def continue_propagation?(source_di, target_di, source_value)
