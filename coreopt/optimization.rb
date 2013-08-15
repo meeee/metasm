@@ -98,10 +98,6 @@ module Metasm
         work_in_progress
       end
 
-      # def constant_propagation
-      #   (ConstantPropagator.new).constant_propagation
-      #   raise "FIXME Load me from optimizations/constant_propagation.rb"
-      # end
 
       # constant_propagation : propagate constant
       #
@@ -177,56 +173,6 @@ module Metasm
         work_in_progress
       end
 
-      # list of registers that can be removed if not used in the Flow
-      # eg mov ecx, 0 ; ret -> can discard the mov if Semanticless_registers = ['ecx']
-      Semanticless_registers = []
-
-      # decl_cleaning : delete unused declaration/assignment
-      #
-      # mov a, b
-      # mov a, c   =>  mov a, c
-      def decl_cleaning
-        puts "\n * declaration cleaning *" if $VERBOSE
-
-        work_in_progress = false
-        return work_in_progress if self.empty?
-
-        self.each{|di|
-          next if di.instruction.opname == 'nop'
-
-          if is_decl_reg_or_stack_var(di) or is_op(di, true)
-            stack_var = is_stack_var(di.instruction.args.first)
-            # puts "decl: #{di}; stack var: #{stack_var}"
-
-            tdi = di
-            reg = di.instruction.args.first
-            exp1 = di.instruction.args.last
-            used = false
-            overwritten = false
-
-            while tdi = inext(tdi)
-              next if tdi.instruction.opname == 'nop'
-
-              # Instructions like "pop cx" exhibit a read access to ecx due binding
-              # encoding issue in encoding on an alias register.
-              (used = true ; break) if read_access(tdi, reg) and ! (tdi.instruction.opname == 'pop' and is_reg(tdi.instruction.args.first) and not reg.to_s == 'esp')
-              (overwritten = true ; break) if write_access(tdi, reg)
-            end
-
-            if not used and (overwritten or Semanticless_registers.include? reg.to_s) and is_stack_safe(di)
-              puts "    [-] Deleting #{di} as unused definition (stack var: #{stack_var and true})" if $VERBOSE
-              stat_key = (stack_var ? :decl_clean_delete_stack : :decl_clean_delete_reg)
-              $coreopt_stats[stat_key] += 1
-              burn_di(di)
-              work_in_progress = true
-            end
-
-          end
-        }
-
-        purge_burnt!
-        work_in_progress
-      end
 
       # constant_folding : fold two constants by solving their arithmetic
       #

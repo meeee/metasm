@@ -5,10 +5,16 @@ module Metasm
         puts "\n * #{self.class.name.split('::').last} *" if $VERBOSE
         return false if flow.empty?
 
+        before_walk
+
         work_in_progress = false
 
-        flow.each do |di|
-          work_in_progress |= constant_propagation_starting_from(flow, di)
+        flow.each do |source_di|
+          before_source_di(flow, source_di)
+
+          work_in_progress |= constant_propagation_starting_from(flow, source_di)
+
+          after_source_di(flow, source_di)
         end
 
         flow.purge_burnt!
@@ -48,6 +54,39 @@ module Metasm
 
         return :condition_failed unless continue_propagation?(source_di, target_di, source_value)
       end
+
+      ##
+      # Default no-op methods
+      #
+      def before_walk
+      end
+
+      def before_source_di(flow, source_di)
+      end
+
+      def source_preconditions_satisfied?(source_di)
+        true
+      end
+
+      def source_value_from_di(source_di)
+        nil
+      end
+
+      def target_preconditions_satisfied(source_di, target_di, source_value)
+        true
+      end
+
+      def continue_propagation(source_di, target_di, source_value)
+        true
+      end
+
+      def after_source_di(flow, source_di)
+      end
+
+      def operations(source_di)
+        []
+      end
+
     end
   end
 end

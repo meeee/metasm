@@ -1,4 +1,4 @@
-require_relative 'optimizations/constant_propagation'
+require_relative 'optimizations'
 
 module Metasm
   module CoreOpt
@@ -49,8 +49,9 @@ module Metasm
 
         # disabled peephole and stack_cleaning
         constant_propagator = Optimizations::ConstantPropagator.new
+        declaration_cleaner = Optimizations::DeclarationCleaner.new
 
-        while (decl_cleaning |
+        while (declaration_cleaner.walk(self) |
                operation_folding |
                constant_propagator.walk(self) |
                constant_folding)
