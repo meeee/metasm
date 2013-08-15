@@ -1,3 +1,5 @@
+require_relative 'optimizations/constant_propagation'
+
 module Metasm
   module CoreOpt
 
@@ -46,7 +48,12 @@ module Metasm
         puts self if $VERBOSE
 
         # disabled peephole and stack_cleaning
-        while (decl_cleaning | operation_folding | constant_propagation | constant_folding)
+        constant_propagator = Optimizations::ConstantPropagator.new
+
+        while (decl_cleaning |
+               operation_folding |
+               constant_propagator.walk(self) |
+               constant_folding)
           pass +=1
           if $VERBOSE
             puts "\n----- pass #{pass} -------\n"

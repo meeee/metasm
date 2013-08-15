@@ -1,5 +1,4 @@
 require_relative 'utils'
-require_relative 'optimizations/constant_propagation'
 #
 # This file extends Flow class and brings many optimizations that can be
 # done on an instruction flow :
@@ -13,7 +12,6 @@ module Metasm
   module CoreOpt
     class Flow
       include Metasm::CoreOpt::Utils
-      include Optimizations::ConstantPropagator
 
       # target specific implementation
       def peephole

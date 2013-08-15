@@ -1,20 +1,23 @@
+require_relative '../../utils'
+
 module Metasm
   module CoreOpt::Optimizations
-    module ConstantPropagator
+    module ConstantPropagation
       module Operations
+        include Metasm::CoreOpt::Utils
 
         # Replace 3-operand IMUL instruction with two constant source operands (a result from
         # constant propagation) with a MOV instruction.
         #
         # This actually doesn't need two instructions, but to keep in line with other operations,
         # it modifies the target_di and ignores source_di.
-        def replace_imul_declaration(source_di, target_di, exp1)
+        def replace_imul_declaration(flow, source_di, target_di, exp1)
           unless is_imul_decl(target_di)
             return :no_match
           end
           # check whether next instruction reads carry or overflow flag set by imul
           # theoretically this might also happen later, so this can't catch all cases
-          if read_access_flags(inext(target_di), [:eflag_o, :eflag_c])
+          if read_access_flags(flow.inext(target_di), [:eflag_o, :eflag_c])
             puts "Error: Instruction following imul reads carry/overflow flag"
             binding.pry
           end
@@ -27,7 +30,7 @@ module Metasm
           return :instruction_modified
         end
 
-        def propagate_register_value(di, tdi, exp1)
+        def propagate_register_value(flow, di, tdi, exp1)
           # mov a, b      mov a, b
           # add c, a  =>  add c, b
           reg1 = di.instruction.args.first
@@ -91,13 +94,13 @@ module Metasm
 
             puts "    [-] NULL MOV in #{tdi}, instruction will burn in hell " if $VERBOSE
             $coreopt_stats[:const_prop_1_null_mov] += 1
-            burn_di(tdi)
+            flow.burn_di(tdi)
           end
 
           return :instruction_modified
         end
 
-        def propagate_stack_variable_value(di, tdi, exp1)
+        def propagate_stack_variable_value(flow, di, tdi, exp1)
           # mov [rbp+a], b
           # add c, [rbp+a] => add c, b
           reg1 = di.instruction.args.first
@@ -126,12 +129,12 @@ module Metasm
           is_reg(args2.last) and  (args2.first.to_s == args2.last.to_s)
             puts "    [-] NULL MOV in #{tdi}, instruction will burn in hell (stack var)" if $VERBOSE
             $coreopt_stats[:const_prop_1_null_mov] += 1
-            burn_di(tdi)
+            flow.burn_di(tdi)
           end
           return :instruction_modified
         end
 
-        def propagate_register_value_to_imul(di, tdi, exp1)
+        def propagate_register_value_to_imul(flow, di, tdi, exp1)
           # mov a, b
           # imul c, a, imm => imul c, b, imm
           reg1 = di.instruction.args.first
@@ -158,7 +161,7 @@ module Metasm
           return :instruction_modified
         end
 
-        def propagate_register_to_indirection(source_di, target_di, exp1)
+        def propagate_register_to_indirection(flow, source_di, target_di, exp1)
           # mov a, 0x1234
           # mov b, dword ptr [a]
           reg1 = source_di.instruction.args.first
@@ -196,7 +199,7 @@ module Metasm
           return :instruction_modified
         end
 
-        def propagate_register_to_target_indirection(di, tdi, exp1)
+        def propagate_register_to_target_indirection(flow, di, tdi, exp1)
           # mov a, b      mov a, b
           # mov [a], c => mov [b], c
           reg1 = di.instruction.args.first
@@ -217,7 +220,7 @@ module Metasm
           return :instruction_modified
         end
 
-        def propagate_register_to_push(di, tdi, exp1)
+        def propagate_register_to_push(flow, di, tdi, exp1)
           # mov a, b      mov a, b         or     mov a, b      mov a, b
           # push a    =>  push b                  pop [a]  =>  pop [b]
           reg1 = di.instruction.args.first

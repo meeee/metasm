@@ -1,5 +1,29 @@
 module Metasm
   module CoreOpt
+    ##
+    # Utils that can only included into a flow
+    #
+    module FlowUtils
+      # hum TODO
+      def build_def_use(di)
+        puts "\n * lding *" if $VERBOSE
+        return false if self.empty?
+
+        tdi = di
+        def_use = []
+
+        while tdi = inext(di)
+
+        end
+
+        purge_burnt!
+        work_in_progress
+      end
+    end
+
+    ##
+    # General utils
+    #
     module Utils
       # changed for x64
       Ia32Reg = [["rax", "al", "ax", "eax", "al", "ah"],
@@ -28,22 +52,6 @@ module Metasm
           # stack var
          di.backtrace_binding.keys.find { |k| k.kind_of? Indirection }
         end
-      end
-
-      # hum TODO
-      def build_def_use(di)
-        puts "\n * lding *" if $VERBOSE
-        return false if self.empty?
-
-        tdi = di
-        def_use = []
-
-        while tdi = inext(di)
-
-        end
-
-        purge_burnt!
-        work_in_progress
       end
 
       def change_to_mov(di, value)
