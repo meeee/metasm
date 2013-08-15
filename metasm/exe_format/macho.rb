@@ -633,6 +633,10 @@ class MachO < ExeFormat
 							end
 						when 'INDIRECT_SYMBOL_ABS'   # nothing
 						else
+							if sidx == nil
+								# FIXME no idea why this happens, but it fixes loading some executables
+								next
+							end
 							sym = @symbols[sidx]
 							seg.encoded.reloc[off] = Metasm::Relocation.new(Expression[sym.name], :u32, @endianness)
 						end
