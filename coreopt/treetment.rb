@@ -45,7 +45,7 @@ module Metasm
       raise 'should be a loop' if rec <= 0
       raise 'invalid arg: nil block' if not block
 
-      puts "\n* deep go at: #{Expression[block.address]} ; rec: #{rec}; comment: #{(block.list.first.comment || []).join(', ')}" if $VERBOSE
+      puts "* deep go at: #{Expression[block.address]} ; rec: #{rec}; comment: #{(block.list.first.comment || []).join(', ')}" if $VERBOSE
 
       nextb = find_next_blocks(block.address)
 
@@ -79,6 +79,7 @@ module Metasm
           end
           current = di_at(current_addr).block
 
+          puts "Constructing flow starting #{current_addr}"
           flow = deep_go(current, locals = [])
 
           firstb = get_block(locals.first)
