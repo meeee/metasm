@@ -4,11 +4,15 @@ module Metasm
   module CoreOpt
 
     class Flow < Array
+      attr_accessor :block_addresses
+      attr_accessor :original_last_address
 
       def initialize(disasm, content = nil)
         super()
         self.concat(content) if content
         @disasm = disasm
+        @block_addresses = []
+        @original_last_address = nil
       end
 
       def linear(flowB)

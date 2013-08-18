@@ -41,7 +41,7 @@ module Metasm
     end
 
     # control flow graph deep walktrough
-    def deep_go(block, locals =[], rec = MAX_REC_LITE, flow = Flow.new(self))
+    def deep_go(block, rec = MAX_REC_LITE, flow = Flow.new(self))
       raise 'should be a loop' if rec <= 0
       raise 'invalid arg: nil block' if not block
 
@@ -50,11 +50,11 @@ module Metasm
       nextb = find_next_blocks(block.address)
 
       flow.concat block.list
-      locals << block.address
+      flow.block_addresses << block.address
 
       if (block.to_subfuncret.to_a + block.to_normal.to_a).length == 1 and nextb.first and
       (nextb.first.from_subfuncret.to_a + nextb.first.from_normal.to_a).length <= 1
-        deep_go(nextb.first.dup, locals, rec-1, flow)
+        deep_go(nextb.first.dup, rec-1, flow)
       end
       flow
     end
@@ -65,11 +65,16 @@ module Metasm
     #  - replace optimized code within control flow graph
     def merge_clean(start_addr)
       puts "\n============\n= start to clean at #{Expression[start_addr]}" if $VERBOSE
+      flows = build_flows(start_addr)
+      optimize_flows(flows)
+    end
+
+    def build_flows(start_addr)
       done = [:default, :unkown]
       todo = [start_addr]
+      flows = []
 
       while current_addr = normalize(todo.pop)
-        puts "\n======\n= pop addr #{Expression[current_addr]}" if $VERBOSE
         next if done.include? current_addr
         begin
 
@@ -79,35 +84,45 @@ module Metasm
           end
           current = di_at(current_addr).block
 
-          puts "Constructing flow starting #{current_addr}"
-          flow = deep_go(current, locals = [])
+          puts "\nConstructing flow starting #{Expression[current_addr]}"
+          flow = deep_go(current)
 
-          firstb = get_block(locals.first)
-          lastb  = get_block(locals.last)
-          lastb.each_to { |addr, type| todo << addr }
-          firstaddr = firstb.list.first.address
-          lastaddr = lastb.list.last.address
+          last_block  = get_block(flow.block_addresses.last)
+          last_block.each_to { |addr, type| todo << addr }
+          flow.original_last_address = last_block.list.last.address
+          puts "  lastaddr: #{flow.original_last_address}"
 
           flow[1..-2].each {|di| replace_instrs(di.address, di.address, []) }
 
-          flow_back = flow.dup
-          flow.clean!
+          flows << flow
 
-          if not flow.first
-            nop = flow_back.first
-            nop.opcode = nop.instruction.cpu.opcode_list.find { |op| op.name == 'nop'}
-            nop.instruction.opname = nop.opcode.name
-            nop.instruction.args = []
-            nop.backtrace_binding = nil
-            flow << nop
-          end
-
-          flow.first.address = firstaddr
-          block = replace_instrs(firstaddr, lastaddr, flow)
         rescue MyExc
           puts $! if $VERBOSE
           done << current_addr
         end
+      end
+      flows
+    end
+
+    # Run optimization on given flows
+    def optimize_flows(flows)
+      flows.each do |flow|
+        flow_back = flow.dup
+        first_block = get_block(flow.block_addresses.first)
+        firstaddr = first_block.list.first.address
+
+        puts "\n [+] Cleaning flow starting #{Expression[firstaddr]}"
+        flow.clean!
+
+        if not flow.first
+          nop = flow_back.first
+          transform_di_to_nop(nop)
+          flow << nop
+        end
+
+        flow.first.address = firstaddr
+        puts "    replace_instrs(#{firstaddr}, #{flow.original_last_address}, <Flow with #{flow.size} instructions>)"
+        block = replace_instrs(firstaddr, flow.original_last_address, flow)
       end
     end
 
@@ -128,6 +143,13 @@ module Metasm
     # get_block: return the block which contained the given address
     def get_block(addr)
       return di_at(eval_addr(addr)).block
+    end
+
+    def transform_di_to_nop(di)
+      di.opcode = di.instruction.cpu.opcode_list.find { |op| op.name == 'nop'}
+      di.instruction.opname = di.opcode.name
+      di.instruction.args = []
+      di.backtrace_binding = nil
     end
 
     class MyExc < RuntimeError ; end
