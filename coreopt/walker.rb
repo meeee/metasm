@@ -47,9 +47,11 @@ module Metasm
       def constant_propagate_between_instructions(flow, source_di, target_di, source_value)
         return :no_match unless target_preconditions_satisfied?(source_di, target_di, source_value)
 
-        operations.each do |operation|
-          result = send(operation, flow, source_di, target_di, source_value)
-          return result if result != :no_match
+        if run_operations?(source_di, target_di)
+          operations.each do |operation|
+            result = send(operation, flow, source_di, target_di, source_value)
+            return result if result != :no_match
+          end
         end
 
         return :condition_failed unless continue_propagation?(source_di, target_di, source_value)
@@ -65,18 +67,22 @@ module Metasm
       end
 
       def source_preconditions_satisfied?(source_di)
-        true
+        source_di.instruction.opname != 'nop'
       end
 
       def source_value_from_di(source_di)
         nil
       end
 
-      def target_preconditions_satisfied(source_di, target_di, source_value)
+      def target_preconditions_satisfied?(source_di, target_di, source_value)
+        target_di.instruction.opname != 'nop'
+      end
+
+      def run_operations?(source_di, target_di)
         true
       end
 
-      def continue_propagation(source_di, target_di, source_value)
+      def continue_propagation?(source_di, target_di, source_value)
         true
       end
 

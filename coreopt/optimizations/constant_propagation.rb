@@ -8,7 +8,8 @@ module Metasm
         include ConstantPropagation::Operations
 
         def source_preconditions_satisfied?(source_di)
-          (not ['nop', 'lea'].include? source_di.instruction.opname) and
+          super and
+            source_di.instruction.opname != 'lea' and
             is_decl_reg_or_stack_var(source_di)
         end
 
@@ -22,9 +23,7 @@ module Metasm
         end
 
         def target_preconditions_satisfied?(source_di, target_di, source_value)
-          !(
-            target_di.instruction.opname == 'nop' or
-            (target_di.instruction.opname == 'test' and not is_reg(source_value)))
+          super and not (target_di.instruction.opname == 'test' and not is_reg(source_value))
         end
 
         def continue_propagation?(source_di, target_di, source_value)
