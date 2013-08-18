@@ -5,5 +5,6 @@ module Metasm
   end
 end
 
+require_relative 'optimizations/constant_folder'
 require_relative 'optimizations/constant_propagation'
 require_relative 'optimizations/declaration_cleaner'

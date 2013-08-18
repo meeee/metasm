@@ -48,13 +48,14 @@ module Metasm
         puts self if $VERBOSE
 
         # disabled peephole and stack_cleaning
-        constant_propagator = Optimizations::ConstantPropagator.new
         declaration_cleaner = Optimizations::DeclarationCleaner.new
+        constant_propagator = Optimizations::ConstantPropagator.new
+        constant_folder = Optimizations::ConstantFolder.new
 
         while (declaration_cleaner.walk(self) |
                operation_folding |
                constant_propagator.walk(self) |
-               constant_folding)
+               constant_folder.walk(self))
           pass +=1
           if $VERBOSE
             puts "\n----- pass #{pass} -------\n"
