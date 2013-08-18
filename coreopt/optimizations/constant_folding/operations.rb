@@ -34,8 +34,8 @@ module Metasm
           end
 
           if res and is_numeric(Expression[res])
-            puts "    [-] Fold #{source_di} and  #{target_di} wih res : #{Expression[res]}"  if $VERBOSE
-            if res != res2
+            puts "    [-] Fold #{source_di} and  #{target_di} with res : #{Expression[res]}"  if $VERBOSE
+            if res.reduce_rec != res2
               puts "      Fold results differ: Expected #{res2}, got #{res}"
             end
             if is_reg(reg1)
