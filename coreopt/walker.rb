@@ -1,6 +1,10 @@
 module Metasm
   module CoreOpt
     class Walker
+      def initialize(flows)
+        @flows = flows
+      end
+
       def walk(flow)
         puts "\n * #{self.class.name.split('::').last} *" if $VERBOSE
         return false if flow.empty?

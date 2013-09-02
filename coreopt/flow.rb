@@ -37,15 +37,15 @@ module Metasm
         res
       end
 
-      def clean!
+      def clean!(flows)
         return self if self.empty?
         filter_jump!
-        optimize!
+        optimize!(flows)
         filter_jump!
         self
       end
 
-      def optimize!
+      def optimize!(flows)
         return self if (self.empty?)
 
         pass = 0
@@ -55,9 +55,9 @@ module Metasm
         # * peephole
         # * stack_cleaning
         # * operation_folding
-        declaration_cleaner = Optimizations::DeclarationCleaner.new
-        constant_propagator = Optimizations::ConstantPropagator.new
-        constant_folder = Optimizations::ConstantFolder.new
+        declaration_cleaner = Optimizations::DeclarationCleaner.new(flows)
+        constant_propagator = Optimizations::ConstantPropagator.new(flows)
+        constant_folder = Optimizations::ConstantFolder.new(flows)
 
         while (declaration_cleaner.walk(self) |
                constant_propagator.walk(self) |

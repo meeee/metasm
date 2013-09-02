@@ -72,7 +72,7 @@ module Metasm
     def build_flows(start_addr)
       done = [:default, :unkown]
       todo = [start_addr]
-      flows = []
+      flows = {}
 
       while current_addr = normalize(todo.pop)
         next if done.include? current_addr
@@ -94,7 +94,7 @@ module Metasm
 
           flow[1..-2].each {|di| replace_instrs(di.address, di.address, []) }
 
-          flows << flow
+          flows[current_addr] = flow
 
         rescue MyExc
           puts $! if $VERBOSE
@@ -106,13 +106,13 @@ module Metasm
 
     # Run optimization on given flows
     def optimize_flows(flows)
-      flows.each do |flow|
+      flows.each do |address, flow|
         flow_back = flow.dup
         first_block = get_block(flow.block_addresses.first)
         firstaddr = first_block.list.first.address
 
         puts "\n [+] Cleaning flow starting #{Expression[firstaddr]}"
-        flow.clean!
+        flow.clean!(flows)
 
         if not flow.first
           nop = flow_back.first
