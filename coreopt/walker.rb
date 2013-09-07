@@ -83,9 +83,6 @@ module Metasm
       end
 
       def walk_between_flows(from_flow, source_di)
-        # FIXME don't propagate to a flow that is being executed multiple times
-        #       and writes a stack variable - on second execution, the vallue is
-        #       probably different than the now propagated constant
         @between_flows = true
         unless source_preconditions_satisfied?(source_di, false)
           # puts " [+] Not walking between flows from #{source_di}: " +
@@ -98,38 +95,10 @@ module Metasm
           next if to_flow_address.nil?
 
           to_flow_info = @flows[to_flow_address]
-          # number of flows leading to to_flow
-          to_flow_incoming_count = to_flow_info[:from].length
 
-          puts "     to flow: #{Expression[from_flow.address]} has " +
-               "#{to_flow_incoming_count} incoming edges"
-
-          # TODO cache results
-
-          if to_flow_incoming_count == 0
-            return false
-          elsif to_flow_incoming_count == 1
-            # continue propagation
-            propagation_conditions_satisfied = true
-          elsif to_flow_incoming_count > 1
-            # to_flow has more than one incoming edge, so we have to check whether
-            # the other flows to_flow has edges from violate propagation conditions.
-            # In that case, we'll have to abort propagation. Otherwise we can continue,
-            # as if the other block wouldn't exist.
-            propagation_conditions_satisfied = true
-            incoming_without_from_flow = to_flow_info[:from] - [from_flow.address]
-            incoming_without_from_flow.each do |incoming|
-              incoming_flow = @flows[incoming][:flow]
-              if incoming_flow.from.length != 1
-                puts "     Incoming flow has more than one incoming flow: " +
-                     "#{Expression[incoming]}: #{incoming_flow.from.length}; stopping propagation"
-                propagation_conditions_satisfied = false
-              else
-                propagation_conditions_satisfied &= check_propagation_conditions(incoming_flow,
-                                                                                 source_di)
-              end
-            end
-          end
+          propagation_conditions_satisfied = propagate_between_flows?(from_flow,
+                                                                      to_flow_info,
+                                                                      source_di)
 
           puts "     propagation conditions satisfied: #{propagation_conditions_satisfied}"
           return false unless propagation_conditions_satisfied
@@ -139,6 +108,77 @@ module Metasm
 
           return true if result
         end
+        false
+      end
+
+      def propagate_between_flows?(from_flow, to_flow_info, source_di)
+        # number of flows leading to to_flow
+        to_flow = to_flow_info[:flow]
+        to_flow_incoming_count = to_flow_info[:from].length
+
+        puts "     to flow: #{Expression[from_flow.address]} has " +
+             "#{to_flow_incoming_count} incoming edges"
+
+        return false if multiple_executions_with_write_access?(to_flow, source_di)
+        # TODO cache results
+
+        if to_flow_incoming_count == 0
+          return false
+        elsif to_flow_incoming_count == 1
+          # continue propagation
+          propagate = true
+        elsif to_flow_incoming_count > 1
+          # to_flow has more than one incoming edge, so we have to check whether
+          # the other flows to_flow has edges from violate propagation conditions.
+          # In that case, we'll have to abort propagation. Otherwise we can continue,
+          # as if the other block wouldn't exist.
+          propagate = true
+          incoming_without_from_flow = to_flow_info[:from] - [from_flow.address]
+          incoming_without_from_flow.each do |incoming|
+            incoming_flow = @flows[incoming][:flow]
+            if incoming_flow.from.length != 1
+              puts "     Incoming flow has more than one incoming flow: " +
+                   "#{Expression[incoming]}: #{incoming_flow.from.length}; stopping propagation"
+              propagate = false
+            else
+              propagate &= check_propagation_conditions(incoming_flow, source_di)
+            end
+          end
+        end
+        propagate
+      end
+
+      # Don't propagate to a flow that is being executed multiple times
+      # and writes a stack variable - on second execution, the value is
+      # probably different than the now propagated constant
+      def multiple_executions_with_write_access?(flow, source_di)
+        comments = flow.first.comment
+        if not comments.kind_of? Array
+          puts '     to flow: no information about number of executions, not propagating.'
+          return true
+        else
+          matches = comments.map do |comment|
+            comment.match(/\Aexecuted ([0-9]+) times\Z/)
+            $1
+          end.compact
+
+          if matches.length != 1
+            puts "     not exactly one execution comment found: #{matches.join(', ')}; " +
+                 "not propgating"
+            return true
+          else
+            execution_count = matches.first.to_i
+            if execution_count != 1
+              puts "     flow executed #{execution_count} times"
+
+              # only allow propagation to block executed multiple times if it doesn't write
+              # the declared variable/register
+              var = source_di.instruction.args.first
+              return true unless flow.all? { |di| not write_access(di, var)}
+            end
+          end
+        end
+        puts "     flow executed #{execution_count} time(s). Propagating :)"
         false
       end
 
