@@ -7,10 +7,11 @@ module Metasm
       class ConstantPropagator < Walker
         include ConstantPropagation::Operations
 
-        def source_preconditions_satisfied?(source_di)
+        def source_preconditions_satisfied?(source_di, same_flow)
           super and
             source_di.instruction.opname != 'lea' and
-            is_decl_reg_or_stack_var(source_di)
+            is_decl_reg_or_stack_var(source_di) and
+            (same_flow or is_stack_var(source_di.instruction.args.first))
         end
 
         def source_value_from_di(source_di)
@@ -22,11 +23,11 @@ module Metasm
           end
         end
 
-        def target_preconditions_satisfied?(source_di, target_di, source_value)
+        def target_preconditions_satisfied?(source_di, target_di, source_value, same_flow)
           super and not (target_di.instruction.opname == 'test' and not is_reg(source_value))
         end
 
-        def continue_propagation?(source_di, target_di, source_value)
+        def continue_propagation?(source_di, target_di, source_value, same_flow)
           reg1 = source_di.instruction.args.first
           !(
             # target di writes to target memory location(reg1) of source di

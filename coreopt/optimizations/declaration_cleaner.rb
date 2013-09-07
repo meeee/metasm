@@ -36,11 +36,11 @@ module Metasm::CoreOpt
         end
       end
 
-      def source_preconditions_satisfied?(source_di)
-        super and is_decl_reg_or_stack_var(source_di) or is_op(source_di, true)
+      def source_preconditions_satisfied?(source_di, same_flow)
+        super and is_decl_reg_or_stack_var(source_di) or is_op(source_di, true) and same_flow
       end
 
-      def continue_propagation?(source_di, target_di, source_value)
+      def continue_propagation?(source_di, target_di, source_value, same_flow)
         true
       end
 

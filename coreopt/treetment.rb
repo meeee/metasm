@@ -71,10 +71,16 @@ module Metasm
 
     def build_flows(start_addr)
       done = [:default, :unkown]
-      todo = [start_addr]
+      todo = [start_addr, :start]
       flows = {}
 
-      while current_addr = normalize(todo.pop)
+      while todo_info = todo.pop
+        current_addr, from = todo_info
+        break if not current_addr = normalize(current_addr)
+        if flows.include? current_addr
+          flows[current_addr][:from] << from
+          next
+        end
         next if done.include? current_addr
         begin
 
@@ -88,25 +94,42 @@ module Metasm
           flow = deep_go(current)
 
           last_block  = get_block(flow.block_addresses.last)
-          last_block.each_to { |addr, type| todo << addr }
+          last_block.each_to { |addr, type| todo << [addr, current_addr] }
           flow.original_last_address = last_block.list.last.address
+
+          # Only find next blocks within same function
+          #
+          # When to_subfuncret is not nil, the block ends with a call and to_normal
+          # points to the called function. Since we're not interested in the called
+          # function, we just use to_subfuncret in this case to get the next address
+          # within the function. This obviously assumes that functions return.
+          to_list = last_block.to_subfuncret || last_block.to_normal || []
+
           puts "  lastaddr: #{flow.original_last_address}"
 
           flow[1..-2].each {|di| replace_instrs(di.address, di.address, []) }
 
-          flows[current_addr] = flow
+          flows[current_addr] = {:flow => flow, :from => [from], :to => to_list}
 
         rescue MyExc
           puts $! if $VERBOSE
           done << current_addr
         end
       end
+
+      flows.each do |address, flow_info|
+        flow = flow_info[:flow]
+        flow.from = flow_info[:from]
+        flow.to = flow_info[:to]
+      end
+
       flows
     end
 
     # Run optimization on given flows
     def optimize_flows(flows)
-      flows.each do |address, flow|
+      flows.each do |address, flow_info|
+        flow = flow_info[:flow]
         flow_back = flow.dup
         first_block = get_block(flow.block_addresses.first)
         firstaddr = first_block.list.first.address

@@ -26,7 +26,9 @@ module Metasm
           di_before = target_di.to_s
           change_to_mov(target_di, value)
           puts "    [-] Replace.decl_imul #{di_before} with mov instruction: #{target_di}"
-          $coreopt_stats[:const_prop_decl_imul] += 1
+          $coreopt_stats[:const_prop_decl_imul] += 1 unless @between_flows
+          $coreopt_stats[:const_prop_decl_imul_between] += 1 if @between_flows
+
           return :instruction_modified
         end
 
@@ -63,10 +65,12 @@ module Metasm
 
           if tdi.instruction.opname == 'movsxd'
             prefix = "    [-] Replace.1_movsxd with mov and"
-            $coreopt_stats[:const_prop_1_movsxd] += 1
+            $coreopt_stats[:const_prop_1_movsxd] += 1 unless @between_flows
+            $coreopt_stats[:const_prop_1_movsxd_between] += 1 if @between_flows
           else
             prefix = "    [-] Replace.1"
-            $coreopt_stats[:const_prop_1] += 1
+            $coreopt_stats[:const_prop_1] += 1 unless @between_flows
+            $coreopt_stats[:const_prop_1_between] += 1 if @between_flows
           end
           # $coreopt_stats[:const_prop_1_imul_decl] += 1 if imul_decl
           puts "#{prefix} #{Expression[args2.last]} in #{tdi} by its " +
@@ -93,7 +97,8 @@ module Metasm
           is_reg(args2.last) and  (args2.first.to_s == args2.last.to_s)
 
             puts "    [-] NULL MOV in #{tdi}, instruction will burn in hell " if $VERBOSE
-            $coreopt_stats[:const_prop_1_null_mov] += 1
+            $coreopt_stats[:const_prop_1_null_mov] += 1 unless @between_flows
+            $coreopt_stats[:const_prop_1_null_mov_between] += 1 if @between_flows
             flow.burn_di(tdi)
           end
 
@@ -114,10 +119,12 @@ module Metasm
           raise 'movsxd x, [stack var]' if di.instruction.opname == 'movsxd'
           puts "    [-] Replace.1_stack #{Expression[args2.last]} in #{tdi} by its definition #{Expression[exp1]} from #{di}" if $VERBOSE
           if tdi.instruction.opname == 'lea'
-            $coreopt_stats[:const_prop_1_stack_var_lea] += 1
+            $coreopt_stats[:const_prop_1_stack_var_lea] += 1 unless @between_flows
+            $coreopt_stats[:const_prop_1_stack_var_lea_between] += 1 if @between_flows
             change_to_mov(tdi, exp1)
           else
-            $coreopt_stats[:const_prop_1_stack_var] += 1
+            $coreopt_stats[:const_prop_1_stack_var] += 1 unless @between_flows
+            $coreopt_stats[:const_prop_1_stack_var_between] += 1 if @between_flows
             args2[1] = exp1
             tdi.backtrace_binding = nil
           end
@@ -128,7 +135,8 @@ module Metasm
           if tdi.instruction.opname == 'mov' and is_reg(args2.first) and
           is_reg(args2.last) and  (args2.first.to_s == args2.last.to_s)
             puts "    [-] NULL MOV in #{tdi}, instruction will burn in hell (stack var)" if $VERBOSE
-            $coreopt_stats[:const_prop_1_null_mov] += 1
+            $coreopt_stats[:const_prop_1_null_mov] += 1 unless @between_flows
+            $coreopt_stats[:const_prop_1_null_mov_between] += 1 if @between_flows
             flow.burn_di(tdi)
           end
           return :instruction_modified
@@ -157,7 +165,8 @@ module Metasm
           puts "    [-] Replace.imul #{Expression[args2[1]]} in #{tdi} by its definition #{Expression[exp1]} (masked: #{Expression[exp1_masked]}) from #{di}" if $VERBOSE
           args2[1] = exp1_masked
           tdi.backtrace_binding = nil
-          $coreopt_stats[:const_prop_imul] += 1
+          $coreopt_stats[:const_prop_imul] += 1 unless @between_flows
+          $coreopt_stats[:const_prop_imul_between] += 1 if @between_flows
           return :instruction_modified
         end
 
@@ -177,7 +186,8 @@ module Metasm
 
           puts "    [-] Replace.2 #{Expression[target_di.instruction.args.last]}" +
                " in #{target_di} using #{Expression[exp1]} from #{source_di}" if $VERBOSE
-          $coreopt_stats[:const_prop_2] += 1
+          $coreopt_stats[:const_prop_2] += 1 unless @between_flows
+          $coreopt_stats[:const_prop_2_between] += 1 if @between_flows
 
           case Expression[exp1].reduce_rec
           when Ia32::Reg

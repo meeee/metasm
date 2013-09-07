@@ -6,6 +6,8 @@ module Metasm
     class Flow < Array
       attr_accessor :block_addresses
       attr_accessor :original_last_address
+      attr_accessor :from
+      attr_accessor :to
 
       def initialize(disasm, content = nil)
         super()
@@ -13,6 +15,12 @@ module Metasm
         @disasm = disasm
         @block_addresses = []
         @original_last_address = nil
+        @from = nil
+        @to = nil
+      end
+
+      def address
+        @block_addresses.first
       end
 
       def linear(flowB)
