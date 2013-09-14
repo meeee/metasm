@@ -96,6 +96,7 @@ module Metasm
           last_block  = get_block(flow.block_addresses.last)
           last_block.each_to { |addr, type| todo << [addr, current_addr] }
           flow.original_last_address = last_block.list.last.address
+          from_subfuncret = get_block(flow.block_addresses.first).from_subfuncret
 
           # Only find next blocks within same function
           #
@@ -109,7 +110,11 @@ module Metasm
 
           flow[1..-2].each {|di| replace_instrs(di.address, di.address, []) }
 
-          flows[current_addr] = {:flow => flow, :from => [from], :to => to_list}
+          flows[current_addr] = {:flow => flow,
+                                 :from => [from],
+                                 :to => to_list,
+                                 :from_subfuncret => (from_subfuncret and
+                                                      from_subfuncret.length > 0)}
 
         rescue MyExc
           puts $! if $VERBOSE

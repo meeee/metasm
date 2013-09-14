@@ -82,14 +82,16 @@ module Metasm
                                                               same_flow)
       end
 
-      def walk_between_flows(from_flow, source_di)
+      def walk_between_flows(from_flow, source_di, depth=1)
         @between_flows = true
+        puts "############## between flows depth: #{depth}" if depth > 1
+        indent = '  ' * ((depth - 1) * 2)
         unless source_preconditions_satisfied?(source_di, false)
           # puts " [+] Not walking between flows from #{source_di}: " +
           #      "source condition not satisfied"
           return false
         end
-        puts " [+] Walking between flows from #{source_di}"
+        puts "#{indent} [+] Walking between flows from #{source_di}"
 
         from_flow.to.each do |to_flow_address|
           next if to_flow_address.nil?
@@ -100,26 +102,28 @@ module Metasm
                                                                       to_flow_info,
                                                                       source_di)
 
-          puts "     propagation conditions satisfied: #{propagation_conditions_satisfied}"
+          puts "#{indent}     propagation conditions satisfied: #{propagation_conditions_satisfied}"
           return false unless propagation_conditions_satisfied
 
           to_flow = to_flow_info[:flow]
           result = constant_propagation_starting_from(to_flow, source_di, false, to_flow.first)
 
           return true if result
+          # Walk recursively, let's see how this works
+          return true if walk_between_flows(to_flow, source_di, depth + 1)
         end
         false
       end
 
-      def propagate_between_flows?(from_flow, to_flow_info, source_di)
+      def propagate_between_flows?(from_flow, to_flow_info, source_di, indent='')
         # number of flows leading to to_flow
         to_flow = to_flow_info[:flow]
         to_flow_incoming_count = to_flow_info[:from].length
 
-        puts "     to flow: #{Expression[from_flow.address]} has " +
+        puts "#{indent}     to flow: #{Expression[from_flow.address]} has " +
              "#{to_flow_incoming_count} incoming edges"
 
-        return false if multiple_executions_with_write_access?(to_flow, source_di)
+        return false if multiple_executions_with_write_access?(to_flow_info, source_di)
         # TODO cache results
 
         if to_flow_incoming_count == 0
@@ -137,7 +141,7 @@ module Metasm
           incoming_without_from_flow.each do |incoming|
             incoming_flow = @flows[incoming][:flow]
             if incoming_flow.from.length != 1
-              puts "     Incoming flow has more than one incoming flow: " +
+              puts "#{indent}     Incoming flow has more than one incoming flow: " +
                    "#{Expression[incoming]}: #{incoming_flow.from.length}; stopping propagation"
               propagate = false
             else
@@ -151,35 +155,49 @@ module Metasm
       # Don't propagate to a flow that is being executed multiple times
       # and writes a stack variable - on second execution, the value is
       # probably different than the now propagated constant
-      def multiple_executions_with_write_access?(flow, source_di)
+      def multiple_executions_with_write_access?(flow_info, source_di)
+        flow = flow_info[:flow]
+        if flow_info[:from_subfuncret]
+          puts "     flow returned from called function"
+          return false
+        end
+        execution_count = execution_count_for_flow(flow)
+
+        if execution_count != 1
+          puts "     flow executed #{execution_count} times"
+
+          # only allow propagation to block executed multiple times if it doesn't write
+          # the declared variable/register
+          var = source_di.instruction.args.first
+          return true unless flow.all? { |di| not write_access(di, var)}
+        end
+
+        puts "     flow executed #{execution_count} time(s). Propagating :)"
+        false
+      end
+
+      def execution_count_for_flow(flow)
         comments = flow.first.comment
         if not comments.kind_of? Array
           puts '     to flow: no information about number of executions, not propagating.'
-          return true
-        else
-          matches = comments.map do |comment|
-            comment.match(/\Aexecuted ([0-9]+) times\Z/)
-            $1
-          end.compact
-
-          if matches.length != 1
-            puts "     not exactly one execution comment found: #{matches.join(', ')}; " +
-                 "not propgating"
-            return true
-          else
-            execution_count = matches.first.to_i
-            if execution_count != 1
-              puts "     flow executed #{execution_count} times"
-
-              # only allow propagation to block executed multiple times if it doesn't write
-              # the declared variable/register
-              var = source_di.instruction.args.first
-              return true unless flow.all? { |di| not write_access(di, var)}
-            end
-          end
+          require 'pry'; binding.pry
+          return
         end
-        puts "     flow executed #{execution_count} time(s). Propagating :)"
-        false
+
+        matches = comments.map do |comment|
+          comment.match(/\Aexecuted ([0-9]+) time(s?)\Z/)
+          $1
+        end.compact
+
+        if matches.length != 1
+          puts "     not exactly one execution comment found: #{matches.join(', ')}; " +
+               "not propgating"
+          require 'pry'; binding.pry
+
+          return
+        end
+
+        matches.first.to_i
       end
 
       def check_propagation_conditions(incoming_flow, source_di)
