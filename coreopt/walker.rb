@@ -82,45 +82,55 @@ module Metasm
                                                               same_flow)
       end
 
-      def walk_between_flows(from_flow, source_di, depth=1)
+      def walk_between_flows(from_flow, source_di, flow_stack=[from_flow])
+        flow_stack << from_flow
+        depth = flow_stack.size
         @between_flows = true
-        puts "############## between flows depth: #{depth}" if depth > 1
-        indent = '  ' * ((depth - 1) * 2)
+        puts " [+] between flows depth: #{depth}" if depth > 1
+
         unless source_preconditions_satisfied?(source_di, false)
           # puts " [+] Not walking between flows from #{source_di}: " +
           #      "source condition not satisfied"
+          flow_stack.pop
           return false
         end
-        puts "#{indent} [+] Walking between flows from #{source_di}"
+        puts " [+] Walking between flows from #{source_di}"
 
         from_flow.to.each do |to_flow_address|
           next if to_flow_address.nil?
 
           to_flow_info = @flows[to_flow_address]
+          if flow_stack.include? to_flow_info[:flow]
+            puts "     Flow already processed: #{Expression[to_flow_info[:flow].address]}"
+            next
+          end
 
           propagation_conditions_satisfied = propagate_between_flows?(from_flow,
                                                                       to_flow_info,
                                                                       source_di)
 
-          puts "#{indent}     propagation conditions satisfied: #{propagation_conditions_satisfied}"
-          return false unless propagation_conditions_satisfied
-
+          puts "     propagation conditions satisfied: #{propagation_conditions_satisfied}"
+          unless propagation_conditions_satisfied
+            flow_stack.pop
+            return false
+          end
           to_flow = to_flow_info[:flow]
           result = constant_propagation_starting_from(to_flow, source_di, false, to_flow.first)
 
           return true if result
           # Walk recursively, let's see how this works
-          return true if walk_between_flows(to_flow, source_di, depth + 1)
+          return true if walk_between_flows(to_flow, source_di, flow_stack)
         end
+        flow_stack.pop
         false
       end
 
-      def propagate_between_flows?(from_flow, to_flow_info, source_di, indent='')
+      def propagate_between_flows?(from_flow, to_flow_info, source_di)
         # number of flows leading to to_flow
         to_flow = to_flow_info[:flow]
         to_flow_incoming_count = to_flow_info[:from].length
 
-        puts "#{indent}     to flow: #{Expression[from_flow.address]} has " +
+        puts "     to flow: #{Expression[from_flow.address]} has " +
              "#{to_flow_incoming_count} incoming edges"
 
         return false if multiple_executions_with_write_access?(to_flow_info, source_di)
@@ -141,7 +151,7 @@ module Metasm
           incoming_without_from_flow.each do |incoming|
             incoming_flow = @flows[incoming][:flow]
             if incoming_flow.from.length != 1
-              puts "#{indent}     Incoming flow has more than one incoming flow: " +
+              puts "     Incoming flow has more than one incoming flow: " +
                    "#{Expression[incoming]}: #{incoming_flow.from.length}; stopping propagation"
               propagate = false
             else
